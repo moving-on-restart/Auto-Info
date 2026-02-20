@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from dotenv import load_dotenv
-
+#更新
 
 @dataclass(frozen=True)
 class AppConfig:
