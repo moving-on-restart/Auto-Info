@@ -1,0 +1,113 @@
+{
+    "analysis_report": {
+        "intent_match": "用户意图与当前图表基本匹配，但需要调整图表内容以更准确反映明代和清代的瓷器数量对比。",
+        "data_correction_suggestion": "当前图表仅展示了两个朝代的总体数量及占比，建议增加具体年份的数据以更详细地展示明代和清代的瓷器变化趋势。"
+    },
+    "element_pool": {
+        "bottom_layer": [
+            {
+                "id": "bg_style",
+                "name": "背景风格",
+                "options": [
+                    {
+                        "value": "museum_clean",
+                        "label": "现代博物馆(极简白)",
+                        "desc": "突出数据，干扰少"
+                    },
+                    {
+                        "value": "history_scroll",
+                        "label": "历史长卷(仿古纸)",
+                        "desc": "沉浸感强，适合历史题材"
+                    }
+                ]
+            },
+            {
+                "id": "axis_style",
+                "name": "坐标轴样式",
+                "options": [
+                    "隐藏网格",
+                    "虚线网格"
+                ]
+            }
+        ],
+        "middle_layer": [
+            {
+                "id": "chart_type",
+                "name": "图表形式",
+                "options": [
+                    {
+                        "value": "bar_chart",
+                        "label": "基础柱状图",
+                        "desc": "清晰直观对比数量"
+                    },
+                    {
+                        "value": "stacked_bar_chart",
+                        "label": "堆叠柱状图",
+                        "desc": "展示每个朝代各年份瓷器数量"
+                    }
+                ]
+            },
+            {
+                "id": "color_scheme",
+                "name": "配色方案",
+                "options": [
+                    {
+                        "value": "contrast",
+                        "label": "明代红 vs 清代蓝",
+                        "desc": "利用时代代表色对比"
+                    },
+                    {
+                        "value": "semantic",
+                        "label": "数据强度映射",
+                        "desc": "颜色深浅代表数量多少"
+                    }
+                ]
+            }
+        ],
+        "top_layer": [
+            {
+                "id": "highlight_insight",
+                "name": "关键洞察(Highlights)",
+                "options": [
+                    {
+                        "value": "ratio_focus",
+                        "label": "强调倍数关系",
+                        "content": "清代数量是明代的2.35倍"
+                    },
+                    {
+                        "value": "total_focus",
+                        "label": "强调总量悬殊",
+                        "content": "清代(625) 远超 明代(266)"
+                    }
+                ]
+            },
+            {
+                "id": "annotation_text",
+                "options": [
+                    {
+                        "style": "objective",
+                        "label": "客观描述",
+                        "text": "数据统计显示..."
+                    },
+                    {
+                        "style": "historical_context",
+                        "label": "历史背景",
+                        "text": "这一差异反映了..."
+                    }
+                ]
+            }
+        ],
+        "visual_assets": [
+            {
+                "category": "Ming Dynasty",
+                "suggestion": "青花瓷瓶",
+                "keywords": "Blue and White Porcelain Vase"
+            },
+            {
+                "category": "Qing Dynasty",
+                "suggestion": "粉彩瓶",
+                "keywords": "Famille Rose Vase"
+            }
+        ]
+    }
+}

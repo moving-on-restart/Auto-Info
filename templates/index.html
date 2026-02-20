@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Intelligence Analyst</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/vega@5"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vega-lite@5"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
+
+    <style>
+        /* --- 保持原有基础 CSS --- */
+        :root {
+            --bg-body: #f4f4f4;
+            --bg-panel: #ffffff;
+            --border-color: #d1d5db;
+            --primary: #2563eb;
+            --accent: #10b981;
+            --text-main: #1f2937;
+            --text-muted: #6b7280;
+            --header-height: 50px;
+        }
+        * { box-sizing: border-box; outline: none; }
+        body { margin: 0; font-family: 'Roboto', sans-serif; background-color: var(--bg-body); color: var(--text-main); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+        .header { height: var(--header-height); background: #fff; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; padding: 0 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; }
+        .header span { color: var(--primary); margin-right: 10px; }
+        .workspace { display: grid; grid-template-columns: 350px 1fr 300px; height: calc(100vh - var(--header-height)); }
+        .panel { background: var(--bg-panel); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; }
+        .panel:last-child { border-right: none; border-left: 1px solid var(--border-color); }
+        .panel-header { padding: 15px; background: #f9fafb; border-bottom: 1px solid var(--border-color); font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; }
+        .panel-content { padding: 20px; overflow-y: auto; flex: 1; }
+        .step-container { margin-bottom: 30px; position: relative; }
+        .step-container::before { content: ''; position: absolute; left: 7px; top: 25px; bottom: -35px; width: 1px; background: #e5e7eb; z-index: 0; }
+        .step-container:last-child::before { display: none; }
+        .step-label { display: flex; align-items: center; gap: 10px; font-weight: 500; margin-bottom: 12px; background: #fff; position: relative; z-index: 1; }
+        .step-dot { width: 16px; height: 16px; background: var(--primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-size: 10px; }
+        .input-group { margin-left: 26px; }
+        textarea, input[type="text"], input[type="file"] { width: 100%; padding: 10px; border: 1px solid var(--border-color); font-family: 'JetBrains Mono', monospace; font-size: 12px; margin-bottom: 10px; background: #fbfbfb; transition: border 0.2s; border-radius: 4px;}
+        textarea:focus, input:focus { border-color: var(--primary); background: #fff; }
+
+        button { width: 100%; padding: 10px; background: #fff; border: 1px solid var(--text-main); color: var(--text-main); font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s; text-transform: uppercase; border-radius: 4px; }
+        button:hover { background: var(--text-main); color: #fff; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; background: #eee; color: #999; border-color: #ccc; }
+        button.primary-btn { background: var(--primary); color: white; border: 1px solid var(--primary); }
+        button.primary-btn:hover { background: #1d4ed8; }
+
+        /* [修改] 辅助按钮样式 */
+        button.secondary-btn { background: white; color: var(--primary); border: 1px solid var(--primary); margin-top: 10px; width: auto; padding: 6px 15px; font-size: 11px;}
+        button.secondary-btn:hover { background: #eff6ff; color: #1d4ed8; }
+
+        /* Viewport */
+        .viewport { background: #f0f2f5; display: flex; flex-direction: column; overflow: hidden; padding: 20px; gap: 20px; }
+
+        /* [修改] 可视化区域改为 Flex 布局以支持左右分栏 */
+        .viz-container {
+            flex: 2;
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            display: flex; /* 改为 Flex */
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* [新增] 左侧图表区 */
+        .viz-left {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border-right: 1px solid #eee;
+            padding: 20px;
+            position: relative;
+        }
+
+        /* [新增] 右侧信息图区 */
+        .viz-right {
+            flex: 0 0 40%; /* 默认隐藏，有图时展开，这里先设个初始值 */
+            display: none; /* 初始隐藏 */
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #fafafa;
+            padding: 10px;
+        }
+
+        /* [新增] 信息图图片样式 */
+        .infographic-img {
+            max-width: 100%;
+            max-height: 90%;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            object-fit: contain;
+        }
+
+        .text-response-container {
+            flex: 1;
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 20px;
+            overflow-y: auto;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .placeholder-text { color: var(--text-muted); font-size: 13px; text-align: center; }
+
+        /* Schema Panel */
+        .schema-item { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #eee; }
+        .schema-name { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600; color: var(--text-main); }
+        .schema-type { font-size: 10px; color: var(--primary); background: rgba(37, 99, 235, 0.1); padding: 2px 4px; border-radius: 3px; margin-left: 5px; }
+
+        /* Loader */
+        .loader { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted); margin-top: 5px; display: none; text-align: center;}
+        .loader::after { content: "..."; animation: dots 1.5s infinite; }
+        @keyframes dots { 0% { content: "."; } 33% { content: ".."; } 66% { content: "..."; } }
+
+        .ai-text h3 { font-size: 16px; margin-top: 0; }
+        .ai-text p { margin-bottom: 10px; }
+        .ai-text code { background: #eee; padding: 2px 4px; border-radius: 3px; font-family: 'JetBrains Mono'; font-size: 12px; }
+        #vis {
+            width: 95%;
+            flex: 1;
+            /* 核心：让内部生成的图表居中 */
+            display: flex;
+            justify-content: center; /* 水平居中 */
+            align-items: center;     /* 垂直居中 */
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <span>●</span> DATA INTELLIGENCE AGENT <span style="color:#ccc; margin:0 10px;">|</span> TABULAR ANALYSIS
+    </div>
+
+    <div class="workspace">
+        <aside class="panel">
+            <div class="panel-header">Configuration</div>
+            <div class="panel-content">
+                <div class="step-container">
+                    <div class="step-label"><div class="step-dot">1</div><span>Data Source</span></div>
+                    <div class="input-group">
+                        <input type="file" id="fileInput" accept=".csv">
+                        <button id="btnUpload">Upload Dataset</button>
+                        <div id="loading-upload" class="loader">PARSING CSV</div>
+                        <div id="file-status" style="font-size: 10px; color: var(--accent); margin-top: 5px; display:none;">✓ File Loaded Successfully</div>
+                    </div>
+                </div>
+                <div class="step-container">
+                    <div class="step-label"><div class="step-dot">2</div><span>Table Semantics</span></div>
+                    <div class="input-group">
+                        <textarea id="tableDesc" rows="4" placeholder="Description...">该表格记录了故宫博物院的瓷器藏品信息，包括年代、类别等字段。</textarea>
+                    </div>
+                </div>
+                <div class="step-container">
+                    <div class="step-label"><div class="step-dot">3</div><span>Analytical Query</span></div>
+                    <div class="input-group">
+                        <textarea id="queryInput" rows="4" placeholder="Ask a question...">故宫藏品中，明代和清代的瓷器数量分别是多少？</textarea>
+                        <button id="btnAnalyze" class="primary-btn" disabled>Run Analysis</button>
+                        <div id="loading-analyze" class="loader">GENERATING INSIGHTS & CHART</div>
+                    </div>
+                </div>
+                <div style="margin-top:auto; font-family:'JetBrains Mono'; font-size:10px; color:#999; border-top:1px solid #eee; padding-top:10px;">
+                    STATUS: <span id="sys-status">IDLE</span>
+                </div>
+            </div>
+        </aside>
+
+        <main class="viewport">
+            <div class="viz-container" id="vizContainer">
+
+                <div class="viz-left">
+                    <div class="placeholder-text" id="vizPlaceholder">
+                        VISUALIZATION CANVAS<br>
+                        <span style="font-size:10px; opacity:0.6;">Charts generated by Vega-Lite will appear here</span>
+                    </div>
+                    <div id="vis"></div>
+
+                    <button id="btnGenInfo" class="secondary-btn" style="display:none;">
+                        ✨ 生成可视化信息图 (AI Infographic)
+                    </button>
+                </div>
+
+                <div class="viz-right" id="infographicPanel">
+                    <div class="placeholder-text" id="infoPlaceholder" style="display:none;">
+                        GENERATING INFOGRAPHIC<br>
+                        <span style="font-size:10px; opacity:0.6;">Using Gemini Vision Model...</span>
+                    </div>
+                    <img id="generatedImg" class="infographic-img" style="display:none;" />
+                </div>
+            </div>
+
+            <div class="text-response-container">
+                <div class="placeholder-text" id="textPlaceholder">
+                    AI ANALYSIS RESULT<br>
+                    <span style="font-size:10px; opacity:0.6;">Textual insights will appear here</span>
+                </div>
+                <div id="aiResponse" class="ai-text" style="display:none;"></div>
+            </div>
+        </main>
+
+        <aside class="panel">
+            <div class="panel-header">Data Schema</div>
+            <div class="panel-content" id="schemaPanel">
+                <div class="placeholder-text" style="margin-top: 50%;">NO DATA LOADED</div>
+            </div>
+        </aside>
+    </div>
+
+    <script>
+        // --- State ---
+        let currentFilePath = "";
+        let currentAnalysisAnswer = ""; // [新增] 存储当前的分析结论文本
+
+        // --- Elements ---
+        const btnUpload = document.getElementById('btnUpload');
+        const btnAnalyze = document.getElementById('btnAnalyze');
+        const btnGenInfo = document.getElementById('btnGenInfo'); // [新增]
+        const fileInput = document.getElementById('fileInput');
+        const schemaPanel = document.getElementById('schemaPanel');
+        const aiResponse = document.getElementById('aiResponse');
+        const vizPlaceholder = document.getElementById('vizPlaceholder');
+        const textPlaceholder = document.getElementById('textPlaceholder');
+        const statusLabel = document.getElementById('sys-status');
+
+        // [新增] 信息图相关元素
+        const infographicPanel = document.getElementById('infographicPanel');
+        const infoPlaceholder = document.getElementById('infoPlaceholder');
+        const generatedImg = document.getElementById('generatedImg');
+
+        // --- Step 1: Upload Logic (保持不变) ---
+        btnUpload.addEventListener('click', async () => {
+            if(fileInput.files.length === 0) { alert("Please select a CSV file first."); return; }
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            toggleLoading('loading-upload', true);
+            btnUpload.disabled = true;
+            statusLabel.innerText = "UPLOADING...";
+            document.getElementById('file-status').style.display = 'none';
+
+            try {
+                const res = await fetch('/upload_csv', { method: 'POST', body: formData });
+                const rawText = await res.text();
+                const data = JSON.parse(rawText);
+
+                if(res.ok && data.status === 'success') {
+                    currentFilePath = data.filepath;
+                    document.getElementById('file-status').style.display = 'block';
+                    renderSchema(data.meta);
+                    btnAnalyze.disabled = false;
+                    statusLabel.innerText = "DATA READY";
+                } else { throw new Error(data.error || "Unknown upload error"); }
+            } catch(e) {
+                alert("Upload Failed: " + e.message);
+                statusLabel.innerText = "ERROR";
+            } finally {
+                toggleLoading('loading-upload', false);
+                btnUpload.disabled = false;
+            }
+        });
+        let currentChartData = null; // 确保定义在最外层
+        // --- Step 3: Analyze Logic (修改) ---
+        btnAnalyze.addEventListener('click', async () => {
+            const desc = document.getElementById('tableDesc').value;
+            const query = document.getElementById('queryInput').value;
+
+            if(!currentFilePath) { alert("Please upload data first."); return; }
+            if(!query) { alert("Please enter a query."); return; }
+
+            toggleLoading('loading-analyze', true);
+            btnAnalyze.disabled = true;
+            statusLabel.innerText = "ANALYZING...";
+
+            // Reset View
+            document.getElementById('vis').innerHTML = "";
+            aiResponse.style.display = 'none';
+            vizPlaceholder.style.display = 'block';
+            textPlaceholder.style.display = 'block';
+
+            // [新增] 重置信息图区域
+            btnGenInfo.style.display = 'none';
+            infographicPanel.style.display = 'none';
+            generatedImg.style.display = 'none';
+            currentAnalysisAnswer = "";
+            currentChartData = null;
+
+            try {
+                const res = await fetch('/analyze', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ filepath: currentFilePath, description: desc, query: query })
+                });
+                const data = await res.json();
+
+                if(data.status === 'success') {
+                    textPlaceholder.style.display = 'none';
+                    aiResponse.style.display = 'block';
+                    aiResponse.innerHTML = data.answer.replace(/\n/g, '<br>');
+                    // [新增] 保存分析结论供生成图片使用
+                    currentAnalysisAnswer = data.answer;
+
+                    if(data.chart) {
+                        currentChartData = JSON.parse(JSON.stringify(data.chart));
+                        console.log("Chart Data Saved:", currentChartData); // Debug: 控制台应打印出对象
+                        vizPlaceholder.style.display = 'none';
+                        vegaEmbed('#vis', data.chart, {actions: false, mode: "vega-lite"}).catch(console.warn);
+                        // [新增] 分析成功且有图表后，显示“生成信息图”按钮
+                        btnGenInfo.style.display = 'block';
+                    } else {
+                        vizPlaceholder.innerHTML = "NO CHART<br><span style='font-size:10px'>Only text analysis available.</span>";
+                    }
+                    statusLabel.innerText = "COMPLETED";
+                } else {
+                    alert('Analysis Failed: ' + data.error);
+                }
+            } catch(e) {
+                console.error(e);
+                alert("Analysis Error: " + e);
+            } finally {
+                toggleLoading('loading-analyze', false);
+                btnAnalyze.disabled = false;
+            }
+        });
+
+        // --- [新增] Generate Infographic Logic ---
+        btnGenInfo.addEventListener('click', async () => {
+            if (!currentChartData) {
+                alert("未找到图表数据，请先点击 Run Analysis 生成图表。");
+                return;
+            }
+            const desc = document.getElementById('tableDesc').value;
+            const query = document.getElementById('queryInput').value;
+
+            // UI 状态更新：显示右侧区域和 Loading
+            infographicPanel.style.display = 'flex';
+            infoPlaceholder.style.display = 'block';
+            generatedImg.style.display = 'none';
+            btnGenInfo.disabled = true;
+            btnGenInfo.innerText = "正在生成图片...";
+            statusLabel.innerText = "GENERATING IMAGE...";
+
+            try {
+                const res = await fetch('/generate_infographic', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        description: desc,
+                        query: query,
+                        analysis_result: currentAnalysisAnswer,
+                        chart_source: currentChartData  // 【关键】确保这里传了数据
+                    })
+                });
+                const data = await res.json();
+
+                if(data.status === 'success') {
+                    // 显示图片
+                    infoPlaceholder.style.display = 'none';
+                    generatedImg.src = data.image_url;
+                    generatedImg.style.display = 'block';
+                    statusLabel.innerText = "IMAGE READY";
+                } else {
+                    alert("Image Gen Error: " + data.error);
+                    infographicPanel.style.display = 'none'; // 失败则隐藏区域
+                }
+            } catch (e) {
+                console.error(e);
+                alert("Network Error: " + e);
+                infographicPanel.style.display = 'none';
+            } finally {
+                btnGenInfo.disabled = false;
+                btnGenInfo.innerText = "✨ 重新生成信息图";
+            }
+        });
+
+        // --- Helper Functions ---
+        function renderSchema(meta) {
+            schemaPanel.innerHTML = `<div style="font-size:10px; color:#999; margin-bottom:10px;">${meta.rows} ROWS FOUND</div>`;
+            meta.columns.forEach(col => {
+                const div = document.createElement('div');
+                div.className = 'schema-item';
+                div.innerHTML = `<span class="schema-name">${col}</span><span class="schema-type">STR/NUM</span>`;
+                schemaPanel.appendChild(div);
+            });
+        }
+
+        function toggleLoading(id, show) {
+            const el = document.getElementById(id);
+            if(el) el.style.display = show ? 'block' : 'none';
+        }
+    </script>
+</body>
+</html>

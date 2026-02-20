@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Integrated Visual Analytic System</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+
+    <script src="https://cdn.jsdelivr.net/npm/vega@5"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vega-lite@5"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
+
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"></head>
+<body>
+
+    <div class="header">
+        <div class="header-left">
+            <span>●</span> DATA & VISUAL INTELLIGENCE
+        </div>
+        <div style="font-family:'JetBrains Mono'; font-size:10px; color:#999;">PIPELINE: DATA -> INFO -> PALETTE</div>
+    </div>
+
+    <div class="workspace">
+
+        <aside class="panel">
+            <div class="panel-header">Pipeline Controls</div>
+            <div class="panel-content">
+
+                <div class="step-container">
+                    <div class="step-label"><div class="step-dot">1</div><span>Data Source</span></div>
+                    <div class="input-group">
+                        <input type="file" id="fileInput" accept=".csv">
+                        <button id="btnUpload">Upload Dataset</button>
+                        <div id="loading-upload" class="loader">PARSING CSV</div>
+                    </div>
+                </div>
+
+                <div class="step-container">
+                    <div class="step-label"><div class="step-dot">2</div><span>Semantics</span></div>
+                    <div class="input-group">
+                        <textarea id="tableDesc" rows="2" placeholder="Table description...">故宫博物院的瓷器藏品信息。</textarea>
+                    </div>
+                </div>
+
+                <div class="step-container">
+                    <div class="step-label"><div class="step-dot">3</div><span>Analysis & Chart</span></div>
+                    <div class="input-group">
+                        <textarea id="queryInput" rows="2" placeholder="Analytical query...">明代和清代的瓷器数量对比？</textarea>
+                        <button id="btnAnalyze" class="primary-btn" disabled>Run Analysis</button>
+                        <button id="btnGenInfo" style="margin-top:5px; color:var(--primary); display:none;">✨ Create Infographic</button>
+                        <div id="loading-analyze" class="loader">ANALYZING</div>
+                        <div id="loading-info" class="loader">GENERATING POSTER</div>
+                    </div>
+                </div>
+
+                <div style="border-top: 1px dashed #ddd; margin: 20px 0;"></div>
+
+                <div class="step-container">
+                    <div class="step-label"><div class="step-dot">4</div><span>Ref Image Source</span></div>
+                    <div class="input-group">
+                        <div class="input-mode-toggle">
+                            <div class="mode-btn active" onclick="switchInputMode('gen')">AI Generate</div>
+                            <div class="mode-btn" onclick="switchInputMode('upload')">Upload</div>
+                        </div>
+
+                        <div id="panel-gen" class="mode-panel active">
+                            <textarea id="refPrompt" rows="2" placeholder="Image desc for colors...">Snowy cabin, warm fire, blue and orange tones</textarea>
+                            <select id="aspectRatio">
+                                <option value="1:1">1:1 Square</option>
+                                <option value="16:9">16:9 Wide</option>
+                            </select>
+                            <button id="btnRefGen">Generate Ref</button>
+                        </div>
+
+                        <div id="panel-upload" class="mode-panel">
+                            <input type="file" id="refFileInput" accept="image/*">
+                            <button id="btnRefUpload">Upload Ref</button>
+                        </div>
+                        <div id="loading-ref" class="loader">PROCESSING IMAGE</div>
+                    </div>
+                </div>
+
+                <div class="step-container">
+                    <div class="step-label"><div class="step-dot">5</div><span>Extract Palette</span></div>
+                    <div class="input-group">
+                        <input type="text" id="regionPrompt" placeholder="Object to extract (e.g. sky)">
+                        <button id="btnExtract" disabled>Detect & Extract</button>
+                        <div id="loading-palette" class="loader">SEGMENTING</div>
+                    </div>
+                </div>
+
+            </div>
+        </aside>
+
+        <main class="viewport">
+
+            <div class="viz-split">
+                <div class="viz-box" style="flex:1">
+                    <div class="viz-title">DATA CHART</div>
+                    <div id="vis" style="flex:1; display:flex; justify-content:center; align-items:center;">
+                        <div class="center-msg">Chart Area</div>
+                    </div>
+                </div>
+                <div class="viz-box" style="flex:1">
+                    <div class="viz-title">INFOGRAPHIC</div>
+                    <div style="flex:1; overflow:hidden; display:flex; justify-content:center; background:#fafafa;">
+                        <div id="infoPlaceholder" class="center-msg">Infographic Area</div>
+                        <img id="generatedImg" class="infographic-img" style="display:none;" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="ref-section">
+                <div class="viz-title">REFERENCE IMAGE & SEGMENTATION (Click Mask to View Palette)</div>
+                <div style="flex:1; overflow:auto; padding:10px; background:#e5e5e5; display:flex; justify-content:center; align-items:center;">
+                    <div id="refPlaceholder" class="center-msg">No Reference Image Loaded</div>
+                    <div class="canvas-container" id="canvasContainer" style="display:none;">
+                        <img id="mainImage" src="" alt="Reference">
+                        <svg id="interactionLayer" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+
+        <aside class="panel">
+            <div class="tab-header">
+                <div class="tab-btn active" onclick="switchTab(0)">SCHEMA</div>
+                <div class="tab-btn" onclick="switchTab(1)">INSIGHT</div>
+                <div class="tab-btn" onclick="switchTab(2)">PALETTE</div>
+            </div>
+
+            <div class="panel-content">
+
+                <div id="tab-schema" class="tab-content active">
+                    <div class="center-msg">No Data</div>
+                </div>
+
+                <div id="tab-insight" class="tab-content">
+                    <div class="center-msg">Run Analysis First</div>
+                </div>
+
+                <div id="tab-palette" class="tab-content">
+                    <div class="center-msg">Select Region in Ref Image</div>
+                </div>
+
+            </div>
+        </aside>
+
+    </div>
+
+<script src="{{ url_for('static', filename='script.js') }}"></script></body>
+</html>

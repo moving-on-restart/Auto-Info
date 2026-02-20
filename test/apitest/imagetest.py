@@ -1,0 +1,187 @@
+import os
+from openai import OpenAI
+from PIL import Image
+from io import BytesIO
+import base64
+
+# 创建客户端
+client = OpenAI(
+    api_key="sk-niHUW338MXE0bVFzEf5fF477B712407eAb28EdA488012953",
+    base_url="https://aihubmix.com/v1",
+)
+
+# 可选参数（OpenAI接口不支持 4K 图片，默认为 1K)
+aspect_ratio = "2:3"   # 支持: 1:1（默认）, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9
+
+prompt = (
+    """请扮演一位专业的数据可视化设计师。你需要根据以下数据分析结果和原本的图表代码，设计一张精美、现代化的数据信息图 (Infographic)。
+
+        ### 1. 任务背景
+        - **数据来源**: 故宫博物院的瓷器藏品信息。
+        - **用户问题**: 明代和清代的瓷器数量对比？
+        - **核心结论**: 根据数据分析结果，可以看出：
+
+- 清代的瓷器总数为625件，而明代的瓷器总数为266件。因此，清代的瓷器数量明显多于明代。
+
+- 对于明代，其瓷器主要分布在不同的时期，其中清代中期（明宣德、明永乐）和晚期（明万历、明成化）的数量相对较多，但每个时期的数量都不超过50件。
+
+- 清代的瓷器则主要集中在乾隆、雍正和康熙三个时期，这三个时期的瓷器数量分别为154件、111件和107件，占清代瓷器总量的大约一半以上。
+
+综上所述，清代的瓷器数量显著多于明代。为了更直观地展示这两个朝代瓷器数量的差异，建议使用分组柱状图进行可视化展示。
+
+        ### 2. 参考图表数据 (Vega-Lite Source Code)
+        以下是完整的图表定义代码，包含了具体的数据值 (values)。请仔细阅读这些数据，确保生成的信息图在趋势和数值上与此保持一致。
+
+        ```json
+        {
+  "$schema": "[https://vega.github.io/schema/vega-lite/v5.json](https://vega.github.io/schema/vega-lite/v5.json)",
+  "config": {
+    "axis": {
+      "domainColor": "#ddd",
+      "gridColor": "#eee",
+      "tickColor": "#ddd"
+    },
+    "view": {
+      "stroke": "transparent"
+    }
+  },
+  "data": {
+    "values": [
+      {
+        "数量": 266,
+        "朝代": "明代",
+        "颜色": "#E6A23C"
+      },
+      {
+        "数量": 625,
+        "朝代": "清代",
+        "颜色": "#409EFF"
+      }
+    ]
+  },
+  "encoding": {
+    "color": {
+      "field": "朝代",
+      "legend": null,
+      "scale": {
+        "domain": [
+          "明代",
+          "清代"
+        ],
+        "range": [
+          "#E6A23C",
+          "#409EFF"
+        ]
+      },
+      "type": "nominal"
+    },
+    "tooltip": [
+      {
+        "field": "朝代",
+        "title": "朝代",
+        "type": "nominal"
+      },
+      {
+        "field": "数量",
+        "title": "瓷器数量",
+        "type": "quantitative"
+      }
+    ],
+    "x": {
+      "axis": {
+        "labelFontSize": 14,
+        "title": null
+      },
+      "field": "朝代",
+      "sort": [
+        "明代",
+        "清代"
+      ],
+      "type": "nominal"
+    },
+    "y": {
+      "axis": {
+        "labelFontSize": 12,
+        "title": "瓷器数量（件）",
+        "titleFontSize": 13
+      },
+      "field": "数量",
+      "type": "quantitative"
+    }
+  },
+  "height": 300,
+  "layer": [
+    {
+      "mark": {
+        "cornerRadiusTopLeft": 8,
+        "cornerRadiusTopRight": 8,
+        "type": "bar"
+      }
+    },
+    {
+      "encoding": {
+        "color": {
+          "value": "#333"
+        },
+        "text": {
+          "field": "数量",
+          "type": "quantitative"
+        }
+      },
+      "mark": {
+        "dy": -15,
+        "fontSize": 16,
+        "fontWeight": "bold",
+        "type": "text"
+      }
+    }
+  ],
+  "mark": {
+    "cornerRadiusTopLeft": 8,
+    "cornerRadiusTopRight": 8,
+    "type": "bar"
+  },
+  "title": {
+    "fontSize": 18,
+    "subtitle": "故宫博物院藏品统计",
+    "text": "明代与清代瓷器数量对比"
+  },
+  "width": 400
+}
+        ```
+
+        ### 3. 设计要求
+        - **视觉风格**: 采用扁平化或伪 3D 的商业智能 (BI) 仪表盘风格，背景整洁（推荐深色或科技蓝白）。
+        - **精准还原**: 请基于代码中的 `values` 数据绘制主要的视觉元素（如柱子的高度、线条的走向），不要凭空捏造数据趋势。
+        - **排版**: 将“核心结论”放在显眼位置，辅以对应的图标。
+         | Ratio: 3:4"""
+)
+
+response = client.chat.completions.create(
+    # model="gemini-2.5-flash-image",
+    model="gemini-3-pro-image-preview",
+    messages=[
+        {"role": "system", "content": f"aspect_ratio={aspect_ratio}"},
+        {"role": "user", "content": [{"type": "text", "text": prompt}]},
+    ],
+    modalities=["text", "image"]
+)
+
+# 保存图片 & 输出文本
+try:
+    parts = response.choices[0].message.multi_mod_content
+    if parts:
+        for part in parts:
+            if "text" in part:
+                print(part["text"])
+            if "inline_data" in part:
+                image_data = base64.b64decode(part["inline_data"]["data"])
+                image = Image.open(BytesIO(image_data))
+                filename = f"butterfly_{aspect_ratio.replace(':','-')}.png"
+                image.save(filename)
+                print(f"Image saved: {filename}")
+    else:
+        print("No valid multimodal response received.")
+except Exception as e:
+    print(f"Error: {str(e)}")
+

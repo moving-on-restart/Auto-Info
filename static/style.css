@@ -1,0 +1,168 @@
+        :root {
+            --bg-body: #f4f4f4;
+            --bg-panel: #ffffff;
+            --border-color: #d1d5db;
+            --primary: #2563eb;
+            --accent: #10b981;
+            --secondary-accent: #ef4444;
+            --text-main: #1f2937;
+            --text-muted: #6b7280;
+            --header-height: 50px;
+        }
+
+        /* --- 全局重置 --- */
+        * { box-sizing: border-box; outline: none; }
+        body { margin: 0; font-family: 'Roboto', sans-serif; background-color: var(--bg-body); color: var(--text-main); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+        /* --- 头部 --- */
+        .header { height: var(--header-height); background: #fff; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; padding: 0 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; justify-content: space-between;}
+        .header-left span { color: var(--primary); margin-right: 10px; }
+
+        /* --- 主布局 --- */
+        .workspace { display: grid; grid-template-columns: 320px 1fr 300px; height: calc(100vh - var(--header-height)); }
+
+        /* --- 面板 (Panels) --- */
+        .panel {
+            background: var(--bg-panel);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+
+            /* --- 新增/修改以下两行 --- */
+            min-height: 0;    /* 关键：允许 grid item 小于其内容高度 */
+            overflow: hidden; /* 关键：防止内部元素溢出 */
+        }
+        .panel:first-child .panel-content {
+            padding: 20px;
+            overflow-y: auto;
+            display: block; /* 左侧不需要 flex column */
+        }
+        .panel:last-child { border-right: none; border-left: 1px solid var(--border-color); }
+        .schema-type {
+            font-size: 9px;
+            color: var(--primary);
+            background: rgba(37, 99, 235, 0.1);
+            padding: 2px 4px;
+            border-radius: 3px;
+            margin-left: 10px;
+            font-weight: 500;
+        }
+
+        .panel-header { padding: 15px; background: #f9fafb; border-bottom: 1px solid var(--border-color); font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; display: flex; justify-content: space-between; align-items: center;}
+        .panel-content {
+            /* padding: 20px;  <-- 删除这一行，padding 移到具体内容里 */
+            /* overflow-y: auto; <-- 删除这一行，不要在这里滚动 */
+
+            flex: 1;
+            overflow: hidden; /* 隐藏溢出，强制子元素处理滚动 */
+            display: flex;    /* 使用 flex 布局让子元素撑满 */
+            flex-direction: column;
+            position: relative;
+        }
+        /* --- 步骤与输入 (Steps & Inputs) --- */
+        .step-container { margin-bottom: 25px; position: relative; }
+        .step-container::before { content: ''; position: absolute; left: 7px; top: 25px; bottom: -30px; width: 1px; background: #e5e7eb; z-index: 0; }
+        .step-container:last-child::before { display: none; }
+        .step-label { display: flex; align-items: center; gap: 10px; font-weight: 500; margin-bottom: 10px; background: #fff; position: relative; z-index: 1; font-size: 13px;}
+        .step-dot { width: 16px; height: 16px; background: var(--primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-size: 10px; }
+
+        .input-group { margin-left: 26px; }
+        textarea, input[type="text"], input[type="file"], select { width: 100%; padding: 8px; border: 1px solid var(--border-color); font-family: 'JetBrains Mono', monospace; font-size: 11px; margin-bottom: 8px; background: #fbfbfb; transition: border 0.2s; border-radius: 4px;}
+        textarea:focus, input:focus, select:focus { border-color: var(--primary); background: #fff; }
+
+        /* --- 按钮 (Buttons) --- */
+        button { width: 100%; padding: 8px; background: #fff; border: 1px solid var(--text-main); color: var(--text-main); font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s; text-transform: uppercase; border-radius: 4px; margin-bottom: 5px;}
+        button:hover { background: var(--text-main); color: #fff; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; background: #eee; }
+        button.primary-btn { background: var(--primary); color: white; border: 1px solid var(--primary); }
+        button.primary-btn:hover { background: #1d4ed8; }
+
+        /* --- 选项卡系统 (Tab System - 右侧面板) --- */
+        .tab-header { display: flex; border-bottom: 1px solid var(--border-color); background: #f9fafb; }
+        .tab-btn { flex: 1; padding: 10px; font-size: 10px; text-align: center; cursor: pointer; font-weight: 600; color: var(--text-muted); border-bottom: 2px solid transparent; }
+        .tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); background: #fff; }
+
+        .tab-content {
+            display: none;
+            /* padding: 15px; <-- 保持或调整 */
+            padding: 15px;
+
+            /* height: 100%; <-- 删除固定高度 */
+            flex: 1;          /* 让它自动填满剩余空间 */
+            overflow-y: auto; /* 在这里滚动 */
+        }
+
+        /* 确保 active 状态下也是 flex item */
+        .tab-content.active {
+            display: block;
+        }
+
+        /* --- 中间视图区 (Center Viewport) --- */
+        .viewport {
+            background: #f0f2f5;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            padding: 15px;
+            gap: 15px;
+
+            /* --- 新增 --- */
+            min-height: 0;
+        }
+        /* 上半部分：数据分析 */
+        .viz-split { flex: 1; display: flex; gap: 15px; min-height: 0; }
+        .viz-box {
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column; /* 关键：让标题和图表垂直排列 */
+            position: relative;
+            min-height: 300px; /* 给一个最小高度，防止压得太扁 */
+        }
+        .viz-title { padding: 8px 12px; font-size: 10px; font-weight: 700; color: var(--text-muted); border-bottom: 1px solid #eee; background: #fafafa; }
+        #vis {
+            flex: 1;              /* 占据所有剩余高度 */
+            width: 100%;          /* 宽度撑满 */
+            height: 100%;         /* 高度撑满 */
+            overflow: hidden;     /* 防止滚动条 */
+            padding: 10px;        /* 留一点内边距，防止文字贴边 */
+            display: flex;        /*以此确保vega生成的canvas能居中或拉伸*/
+        }
+
+        /* 下半部分：参考图像 */
+        .ref-section { flex: 1; min-height: 0; display: flex; flex-direction: column; background: white; border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; }
+
+        /* 画布与交互 */
+        .canvas-container { position: relative; display: inline-block; line-height: 0; max-width: 100%; max-height: 100%; margin: auto; }
+        #mainImage { max-width: 100%; max-height: 35vh; display: block; object-fit: contain; }
+        #interactionLayer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; }
+
+        .mask-poly { fill: rgba(239, 68, 68, 0.1); stroke: var(--secondary-accent); stroke-width: 2; vector-effect: non-scaling-stroke; transition: all 0.2s; cursor: pointer; pointer-events: auto; }
+        .mask-poly:hover { fill: rgba(239, 68, 68, 0.3); stroke: #fff; stroke-width: 3; }
+        .mask-poly.active { fill: rgba(37, 99, 235, 0.3); stroke: var(--primary); stroke-width: 3; }
+
+        /* 右侧面板结果样式 */
+        .data-row { margin-bottom: 15px; border-bottom: 1px dashed #eee; padding-bottom: 10px; }
+        .data-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px; }
+        .data-value { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500; }
+        .palette-grid { display: flex; gap: 2px; height: 30px; margin-top: 5px; border: 1px solid #ddd; }
+        .color-swatch { flex: 1; transition: transform 0.2s; }
+        .color-swatch:hover { transform: scale(1.1); z-index: 10; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+
+        .loader { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--primary); margin-top: 5px; display: none; text-align: center;}
+        .loader::after { content: "..."; animation: dots 1.5s infinite; }
+        @keyframes dots { 0% { content: "."; } 33% { content: ".."; } 66% { content: "..."; } }
+
+        /* 图片样式 */
+        .infographic-img { max-width: 100%; max-height: 100%; object-fit: contain; padding: 10px;}
+        .center-msg { display: flex; align-items: center; justify-content: center; height: 100%; color: #aaa; font-size: 12px; text-align: center; }
+
+        /* 输入模式切换 */
+        .input-mode-toggle { display: flex; margin-bottom: 8px; border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden; }
+        .mode-btn { flex: 1; padding: 6px; font-size: 10px; text-align: center; cursor: pointer; background: #f4f4f4; }
+        .mode-btn.active { background: white; font-weight: bold; color: var(--primary); }
+        .mode-panel { display: none; }
+        .mode-panel.active { display: block; }

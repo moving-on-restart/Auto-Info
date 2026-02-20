@@ -1,0 +1,460 @@
+        :root {
+            --bg-body: #f4f4f4;
+            --bg-panel: #ffffff;
+            --border-color: #d1d5db;
+            --primary: #2563eb;
+            --accent: #10b981;
+            --secondary-accent: #ef4444;
+            --text-main: #1f2937;
+            --text-muted: #6b7280;
+            --header-height: 50px;
+        }
+
+        /* --- 鍏ㄥ眬閲嶇疆 --- */
+        * { box-sizing: border-box; outline: none; }
+        body { margin: 0; font-family: 'Roboto', sans-serif; background-color: var(--bg-body); color: var(--text-main); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+        /* --- 澶撮儴 --- */
+        .header { height: var(--header-height); background: #fff; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; padding: 0 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; justify-content: space-between;}
+        .header-left span { color: var(--primary); margin-right: 10px; }
+
+        /* --- 涓诲竷灞€ --- */
+        .workspace { display: grid; grid-template-columns: 320px 1fr 300px; height: calc(100vh - var(--header-height)); }
+
+        /* --- 闈㈡澘 (Panels) --- */
+        .panel {
+            background: var(--bg-panel);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+
+            /* --- 鏂板/淇敼浠ヤ笅涓よ --- */
+            min-height: 0;    /* 鍏抽敭锛氬厑璁?grid item 灏忎簬鍏跺唴瀹归珮搴?*/
+            overflow: hidden; /* 鍏抽敭锛氶槻姝㈠唴閮ㄥ厓绱犳孩鍑?*/
+        }
+        .panel:first-child .panel-content {
+            padding: 20px;
+            overflow-y: auto;
+            display: block; /* 宸︿晶涓嶉渶瑕?flex column */
+        }
+        .panel:last-child { border-right: none; border-left: 1px solid var(--border-color); }
+        .schema-type {
+            font-size: 9px;
+            color: var(--primary);
+            background: rgba(37, 99, 235, 0.1);
+            padding: 2px 4px;
+            border-radius: 3px;
+            margin-left: 10px;
+            font-weight: 500;
+        }
+
+        .panel-header { padding: 15px; background: #f9fafb; border-bottom: 1px solid var(--border-color); font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; display: flex; justify-content: space-between; align-items: center;}
+        .panel-content {
+            /* padding: 20px;  <-- 鍒犻櫎杩欎竴琛岋紝padding 绉诲埌鍏蜂綋鍐呭閲?*/
+            /* overflow-y: auto; <-- 鍒犻櫎杩欎竴琛岋紝涓嶈鍦ㄨ繖閲屾粴鍔?*/
+
+            flex: 1;
+            overflow: hidden; /* 闅愯棌婧㈠嚭锛屽己鍒跺瓙鍏冪礌澶勭悊婊氬姩 */
+            display: flex;    /* 浣跨敤 flex 甯冨眬璁╁瓙鍏冪礌鎾戞弧 */
+            flex-direction: column;
+            position: relative;
+        }
+        /* --- 姝ラ涓庤緭鍏?(Steps & Inputs) --- */
+        .step-container { margin-bottom: 25px; position: relative; }
+        .step-container::before { content: ''; position: absolute; left: 7px; top: 25px; bottom: -30px; width: 1px; background: #e5e7eb; z-index: 0; }
+        .step-container:last-child::before { display: none; }
+        .step-label { display: flex; align-items: center; gap: 10px; font-weight: 500; margin-bottom: 10px; background: #fff; position: relative; z-index: 1; font-size: 13px;}
+        .step-dot { width: 16px; height: 16px; background: var(--primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-size: 10px; }
+
+        .input-group { margin-left: 26px; }
+        textarea, input[type="text"], input[type="file"], select { width: 100%; padding: 8px; border: 1px solid var(--border-color); font-family: 'JetBrains Mono', monospace; font-size: 11px; margin-bottom: 8px; background: #fbfbfb; transition: border 0.2s; border-radius: 4px;}
+        textarea:focus, input:focus, select:focus { border-color: var(--primary); background: #fff; }
+
+        /* --- 鎸夐挳 (Buttons) --- */
+        button { width: 100%; padding: 8px; background: #fff; border: 1px solid var(--text-main); color: var(--text-main); font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s; text-transform: uppercase; border-radius: 4px; margin-bottom: 5px;}
+        button:hover { background: var(--text-main); color: #fff; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; background: #eee; }
+        button.primary-btn { background: var(--primary); color: white; border: 1px solid var(--primary); }
+        button.primary-btn:hover { background: #1d4ed8; }
+        .random-generate-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 5px;
+            margin-bottom: 8px;
+        }
+        .random-count-label {
+            flex: 0 0 20px;
+            text-align: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+        .random-count-input {
+            flex: 0 0 78px;
+            width: 78px;
+            padding: 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            margin-bottom: 0;
+            text-align: center;
+            font-size: 11px;
+            font-family: 'JetBrains Mono', monospace;
+            background: #ffffff;
+        }
+        .random-generate-btn {
+            flex: 1 1 auto;
+            width: auto;
+            margin-bottom: 0;
+            color: #059669;
+            border-color: #10b981;
+            background: #f0fdf4;
+            text-transform: none;
+            letter-spacing: 0.2px;
+        }
+        .random-generate-btn:hover {
+            background: #10b981;
+            border-color: #10b981;
+            color: #fff;
+        }
+
+        @media (max-width: 480px) {
+            .random-generate-row { flex-wrap: wrap; }
+            .random-count-input { flex: 1 0 88px; width: 100%; }
+            .random-generate-btn { flex: 1 0 100%; width: 100%; }
+        }
+
+        /* --- 閫夐」鍗＄郴缁?(Tab System - 鍙充晶闈㈡澘) --- */
+        .tab-header { display: flex; border-bottom: 1px solid var(--border-color); background: #f9fafb; }
+        .tab-btn { flex: 1; padding: 10px; font-size: 10px; text-align: center; cursor: pointer; font-weight: 600; color: var(--text-muted); border-bottom: 2px solid transparent; }
+        .tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); background: #fff; }
+
+        .tab-content {
+            display: none;
+            /* padding: 15px; <-- 淇濇寔鎴栬皟鏁?*/
+            padding: 15px;
+
+            /* height: 100%; <-- 鍒犻櫎鍥哄畾楂樺害 */
+            flex: 1;          /* 璁╁畠鑷姩濉弧鍓╀綑绌洪棿 */
+            overflow-y: auto; /* 鍦ㄨ繖閲屾粴鍔?*/
+        }
+
+        /* 纭繚 active 鐘舵€佷笅涔熸槸 flex item */
+        .tab-content.active {
+            display: block;
+        }
+
+        /* --- 涓棿瑙嗗浘鍖?(Center Viewport) --- */
+        .viewport {
+            background: #f0f2f5;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            padding: 15px;
+            gap: 15px;
+
+            /* --- 鏂板 --- */
+            min-height: 0;
+        }
+        /* 涓婂崐閮ㄥ垎锛氭暟鎹垎鏋?*/
+        .viz-split { flex: 1; display: flex; gap: 15px; min-height: 0; }
+        .viz-box {
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column; /* 鍏抽敭锛氳鏍囬鍜屽浘琛ㄥ瀭鐩存帓鍒?*/
+            position: relative;
+            min-height: 300px; /* 缁欎竴涓渶灏忛珮搴︼紝闃叉鍘嬪緱澶墎 */
+        }
+        .viz-title { padding: 8px 12px; font-size: 10px; font-weight: 700; color: var(--text-muted); border-bottom: 1px solid #eee; background: #fafafa; }
+        #vis {
+            flex: 1;              /* 鍗犳嵁鎵€鏈夊墿浣欓珮搴?*/
+            width: 100%;          /* 瀹藉害鎾戞弧 */
+            height: 100%;         /* 楂樺害鎾戞弧 */
+            overflow: hidden;     /* 闃叉婊氬姩鏉?*/
+            padding: 10px;        /* 鐣欎竴鐐瑰唴杈硅窛锛岄槻姝㈡枃瀛楄创杈?*/
+            display: flex;        /*浠ユ纭繚vega鐢熸垚鐨刢anvas鑳藉眳涓垨鎷変几*/
+        }
+
+        /* 涓嬪崐閮ㄥ垎锛氬弬鑰冨浘鍍?*/
+        .ref-section { flex: 1; min-height: 0; display: flex; flex-direction: column; background: white; border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; }
+
+        /* 鐢诲竷涓庝氦浜?*/
+        .canvas-container { position: relative; display: inline-block; line-height: 0; max-width: 100%; max-height: 100%; margin: auto; }
+        #mainImage { max-width: 100%; max-height: 35vh; display: block; object-fit: contain; }
+        #interactionLayer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; }
+
+        .mask-poly { fill: rgba(239, 68, 68, 0.1); stroke: var(--secondary-accent); stroke-width: 2; vector-effect: non-scaling-stroke; transition: all 0.2s; cursor: pointer; pointer-events: auto; }
+        .mask-poly:hover { fill: rgba(239, 68, 68, 0.3); stroke: #fff; stroke-width: 3; }
+        .mask-poly.active { fill: rgba(37, 99, 235, 0.3); stroke: var(--primary); stroke-width: 3; }
+
+        /* 鍙充晶闈㈡澘缁撴灉鏍峰紡 */
+        .data-row { margin-bottom: 15px; border-bottom: 1px dashed #eee; padding-bottom: 10px; }
+        .data-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px; }
+        .data-value { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500; }
+        .palette-grid { display: flex; gap: 2px; height: 30px; margin-top: 5px; border: 1px solid #ddd; }
+        .color-swatch { flex: 1; transition: transform 0.2s; }
+        .color-swatch:hover { transform: scale(1.1); z-index: 10; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+
+        .loader { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--primary); margin-top: 5px; display: none; text-align: center;}
+        .loader::after { content: "..."; animation: dots 1.5s infinite; }
+        @keyframes dots { 0% { content: "."; } 33% { content: ".."; } 66% { content: "..."; } }
+
+        /* 鍥剧墖鏍峰紡 */
+        .infographic-img { max-width: 100%; max-height: 100%; object-fit: contain; padding: 10px;}
+        .center-msg { display: flex; align-items: center; justify-content: center; height: 100%; color: #aaa; font-size: 12px; text-align: center; }
+
+        /* 杈撳叆妯″紡鍒囨崲 */
+        .input-mode-toggle { display: flex; margin-bottom: 8px; border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden; }
+        .mode-btn { flex: 1; padding: 6px; font-size: 10px; text-align: center; cursor: pointer; background: #f4f4f4; }
+        .mode-btn.active { background: white; font-weight: bold; color: var(--primary); }
+        .mode-panel { display: none; }
+        .mode-panel.active { display: block; }
+        /* --- 淇濈暀鍘熸湁鐨?CSS --- */
+
+        /* --- 鏂板锛氬悜瀵兼牱寮?(鍙充晶闈㈡澘) --- */
+        .wizard-step-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--primary);
+            text-transform: uppercase;
+            margin-bottom: 10px;
+            border-bottom: 2px solid #f0f0f0;
+            padding-bottom: 5px;
+        }
+
+        .wizard-options-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .wizard-card {
+            border: 1px solid #eee;
+            background: #fff;
+            padding: 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 11px;
+            position: relative;
+        }
+
+        .wizard-card:hover {
+            border-color: var(--primary);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+
+        .wizard-card.selected {
+            border-color: var(--primary);
+            background: #eff6ff; /* 娴呰摑鑹茶儗鏅?*/
+            box-shadow: 0 0 0 1px var(--primary);
+        }
+
+        .wizard-card strong { display: block; margin-bottom: 2px; color: #333; }
+        .wizard-card span { color: #666; font-size: 10px; line-height: 1.3; display: block; }
+
+        /* 瑁呴グ鍏冪礌鍥剧墖鍗＄墖 */
+        .asset-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .asset-card {
+            border: 1px solid #eee;
+            border-radius: 6px;
+            overflow: hidden;
+            cursor: pointer;
+            background: #fff;
+            position: relative;
+            transition: all 0.2s;
+        }
+
+        .asset-card:hover { border-color: #bbb; }
+        .asset-card.selected {
+            border: 2px solid var(--primary);
+            box-shadow: 0 2px 5px rgba(37, 99, 235, 0.2);
+        }
+
+        .asset-card img {
+            width: 100%;
+            height: 80px;
+            object-fit: contain; /* 淇濇寔鍥炬爣姣斾緥 */
+            padding: 5px;
+            display: block;
+        }
+
+        .asset-card-label {
+            padding: 4px;
+            font-size: 9px;
+            text-align: center;
+            background: #fafafa;
+            border-top: 1px solid #eee;
+            color: #666;
+        }
+
+        /* 搴曢儴瀵艰埅鎸夐挳 */
+        .wizard-nav {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+            padding-bottom: 20px;
+        }
+
+        /* --- 鏂板锛氱敾寤婃牱寮?(涓棿闈㈡澘) --- */
+        .gallery-item {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            overflow: hidden;
+            display: flex;
+            flex-direction: row; /* 姘村钩甯冨眬锛氬乏鍥惧彸瀛?*/
+            min-height: 220px;
+            border: 1px solid #eee;
+        }
+
+        .gallery-img-container {
+            flex: 2; /* 鍥剧墖鍗?2/3 */
+            background: #fafafa;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border-right: 1px solid #eee;
+            padding: 10px;
+        }
+
+        .gallery-img {
+            max-width: 100%;
+            max-height: 300px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            border-radius: 4px;
+        }
+
+        .gallery-info {
+            flex: 1; /* 淇℃伅鍗?1/3 */
+            padding: 15px;
+            font-size: 10px;
+            overflow-y: auto;
+            background: #fff;
+        }
+
+        .gallery-info h4 { margin: 0 0 10px 0; color: #333; font-size: 12px; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+        .info-row { margin-bottom: 8px; }
+        .info-label { color: #888; font-weight: 600; font-size: 9px; text-transform: uppercase; margin-bottom: 2px;}
+        .info-val { color: #333; font-family: 'JetBrains Mono', monospace; font-size: 10px; }
+
+        /* 鍔犺浇鍔ㄧ敾鍗犱綅绗?*/
+        .asset-loader {
+            height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f9f9f9;
+            color: #aaa;
+            font-size: 9px;
+        }
+
+
+
+        /* 1. 鍚戝绗?姝ワ細鍙欎簨鏂囨湰棰勮鏍峰紡 */
+        .wizard-content-preview {
+            margin-top: 6px;
+            padding: 6px;
+            background: #f9fafb;
+            border: 1px dashed #d1d5db;
+            border-radius: 4px;
+            font-size: 10px;
+            color: #374151;
+            font-family: 'JetBrains Mono', monospace;
+            white-space: pre-wrap; /* 淇濈暀鎹㈣绗?*/
+            max-height: 80px;      /* 闄愬埗鏈€澶ч珮搴?*/
+            overflow-y: auto;      /* 鍐呭杩囧鏃舵粴鍔?*/
+        }
+
+        /* 2. 鐢诲粖鏍囩椤典笌甯冨眬鏍峰紡 */
+        .gallery-container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        .gallery-tabs-wrapper {
+            padding: 10px 10px 0 10px;
+            background: #f0f0f0;
+            border-bottom: 1px solid #ddd;
+            overflow-x: auto;
+            white-space: nowrap;
+            display: flex;
+            gap: 5px;
+            min-height: 45px; /* 鍥哄畾鏍囩鏍忛珮搴?*/
+        }
+
+        .gallery-tab {
+            padding: 6px 12px;
+            font-size: 10px;
+            font-weight: 600;
+            color: #666;
+            background: #e5e5e5;
+            border-radius: 6px 6px 0 0;
+            cursor: pointer;
+            border: 1px solid #ddd;
+            border-bottom: none;
+            transition: all 0.2s;
+        }
+
+        .gallery-tab:hover {
+            background: #fff;
+        }
+
+        .gallery-tab.active {
+            background: #fff;
+            color: var(--primary);
+            border-top: 2px solid var(--primary);
+            font-weight: 700;
+            margin-bottom: -1px; /* 閬綇搴曢儴杈规锛屼笌鍐呭鍖鸿瀺鍚?*/
+            z-index: 2;
+        }
+
+        .gallery-display-area {
+            flex: 1;
+            background: #fff;
+            padding: 15px;
+            overflow-y: auto;
+            position: relative;
+        }
+
+        /* 淇敼鍗曞紶瑙嗗浘鐨勬牱寮?(閫傚簲鏂板鍣? */
+        .gallery-item {
+            background: white;
+            border: none;
+            box-shadow: none;
+            border-radius: 0;
+            display: flex;
+            flex-direction: row;
+            min-height: 300px;
+            gap: 15px;
+        }
+
+        .gallery-img-container {
+            flex: 2;
+            background: #fafafa;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            padding: 10px;
+        }
+
+        .gallery-info {
+            flex: 1;
+            padding: 0;
+            font-size: 10px;
+            overflow-y: auto;
+        }
