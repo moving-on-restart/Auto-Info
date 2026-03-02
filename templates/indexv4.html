@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -8,6 +8,7 @@
     <script src="https://cdn.jsdelivr.net/npm/vega@5"></script>
     <script src="https://cdn.jsdelivr.net/npm/vega-lite@5"></script>
     <script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
+    <script src="https://cdn.staticfile.net/d3/7.8.5/d3.min.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='stylev2.css') }}">
 </head>
 <body>
@@ -16,14 +17,14 @@
         <div class="header-left">
             <span>●</span> DATA & VISUAL INTELLIGENCE
         </div>
-        <div style="font-family:'JetBrains Mono'; font-size:10px; color:#999;">PIPELINE: DATA -> INFO -> PALETTE</div>
+        <div style="font-family:'JetBrains Mono'; font-size:10px; color:#999;">PIPELINE: DATA -> FORCE PLAN -> PALETTE -> INFOGRAPHIC</div>
     </div>
 
     <div class="workspace">
 
         <aside class="panel">
             <div class="panel-header">Pipeline Controls</div>
-            <div class="panel-content">
+            <div class="panel-content panel-content-steps">
                 <div class="step-container">
                     <div class="step-label"><div class="step-dot">1</div><span>Data Source</span></div>
                     <div class="input-group">
@@ -32,60 +33,25 @@
                         <div id="loading-upload" class="loader">PARSING CSV</div>
                     </div>
                 </div>
+
                 <div class="step-container">
                     <div class="step-label"><div class="step-dot">2</div><span>Semantics</span></div>
                     <div class="input-group">
-                        <textarea id="tableDesc" rows="2" placeholder="Table description...">故宫博物院的瓷器藏品信息。</textarea>
+                        <textarea id="tableDesc" rows="2" placeholder="Table description..."></textarea>
                     </div>
                 </div>
+
                 <div class="step-container">
-                    <div class="step-label"><div class="step-dot">3</div><span>Analysis & Chart</span></div>
+                    <div class="step-label"><div class="step-dot">3</div><span>Analysis & Force Plan</span></div>
                     <div class="input-group">
-                        <textarea id="queryInput" rows="2" placeholder="Analytical query...">明代和清代的瓷器数量对比？</textarea>
+                        <textarea id="queryInput" rows="2" placeholder="请输入问题">明代和清代的瓷器数量对比？</textarea>
                         <button id="btnAnalyze" class="primary-btn" disabled>Run Analysis</button>
-
-                        <button id="btnGenInfo" style="margin-top:5px; color:var(--primary); display:none;">✨ Design Infographic</button>
-
-                        <div id="randomGenerateRow" class="random-generate-row" style="display:none;">
-                            <label for="randomCountInput" class="random-count-label">N</label>
-                            <input type="number" id="randomCountInput" class="random-count-input" min="1" max="12" step="1" value="3" placeholder="Count">
-                            <button id="btnGenRandom" class="random-generate-btn">🎲 Generate Random Infographics</button>
-                        </div>
-
+                        <button id="btnGenInfo" style="margin-top:5px; color:var(--primary); display:none;">Build Force Graph (50 JSON)</button>
+                        <input type="file" id="forceJsonInput" accept=".json,application/json" style="margin-top:8px;">
+                        <button id="btnGenInfoFromJson" style="margin-top:5px; color:#0f766e;" disabled>Build Force Graph From Uploaded JSON</button>
                         <div id="loading-analyze" class="loader">ANALYZING</div>
-                        <div id="loading-info" class="loader">PLANNING</div>
-                    </div>
-                </div>
-                <div style="border-top: 1px dashed #ddd; margin: 20px 0;"></div>
-                <div class="step-container">
-                    <div class="step-label"><div class="step-dot">4</div><span>Ref Image Source</span></div>
-                    <div class="input-group">
-                        <div class="input-mode-toggle">
-                            <div class="mode-btn active" onclick="switchInputMode('gen')">AI Generate</div>
-                            <div class="mode-btn" onclick="switchInputMode('upload')">Upload</div>
-                        </div>
-                        <div id="panel-gen" class="mode-panel active">
-                            <textarea id="refPrompt" rows="2" placeholder="Image desc for colors...">Snowy cabin, warm fire, blue and orange tones</textarea>
-                            <button id="btnAutoPalettePrompt" type="button">Auto Prompt (M1-M4)</button>
-                            <select id="aspectRatio">
-                                <option value="1:1">1:1 Square</option>
-                                <option value="16:9">16:9 Wide</option>
-                            </select>
-                            <button id="btnRefGen">Generate Ref</button>
-                        </div>
-                        <div id="panel-upload" class="mode-panel">
-                            <input type="file" id="refFileInput" accept="image/*">
-                            <button id="btnRefUpload">Upload Ref</button>
-                        </div>
-                        <div id="loading-ref" class="loader">PROCESSING IMAGE</div>
-                    </div>
-                </div>
-                <div class="step-container">
-                    <div class="step-label"><div class="step-dot">5</div><span>Extract Palette</span></div>
-                    <div class="input-group">
-                        <input type="text" id="regionPrompt" placeholder="Object to extract (e.g. sky)">
-                        <button id="btnExtract" disabled>Detect & Extract</button>
-                        <div id="loading-palette" class="loader">SEGMENTING</div>
+                        <div id="loading-info" class="loader">GENERATING 50 PLANS</div>
+                        <div id="loading-info-json" class="loader">PARSING UPLOADED JSON</div>
                     </div>
                 </div>
             </div>
@@ -99,26 +65,42 @@
                         <div class="center-msg">Chart Area</div>
                     </div>
                 </div>
+
                 <div class="viz-box" style="flex:1; background:#f0f0f0;">
                     <div class="viz-title">INFOGRAPHIC GALLERY</div>
                     <div id="posterGallery" style="flex:1; display:flex; flex-direction:column; overflow:hidden;">
-                        <div class="gallery-tabs-wrapper" id="galleryTabs">
-                            </div>
-
+                        <div class="gallery-tabs-wrapper" id="galleryTabs"></div>
                         <div class="gallery-display-area" id="galleryView">
-                            <div class="center-msg">生成的信息图将显示在这里</div>
+                            <div class="center-msg">Generated infographics will appear here</div>
                         </div>
                     </div>
                 </div>
             </div>
 
             <div class="ref-section">
-                <div class="viz-title">REFERENCE IMAGE & SEGMENTATION (Click Mask to View Palette)</div>
-                <div style="flex:1; overflow:auto; padding:10px; background:#e5e5e5; display:flex; justify-content:center; align-items:center;">
-                    <div id="refPlaceholder" class="center-msg">No Reference Image Loaded</div>
-                    <div class="canvas-container" id="canvasContainer" style="display:none;">
-                        <img id="mainImage" src="" alt="Reference">
-                        <svg id="interactionLayer" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+                <div class="viz-title force-title-row">
+                    <span>FORCE-GUIDED SCHEME EXPLORER</span>
+                    <div class="force-actions">
+                        <button id="btnForceReset" class="force-btn">Reset</button>
+                        <button id="btnForceNext" class="force-btn">Next Layer</button>
+                        <button id="btnForceGenerate" class="force-btn force-generate" style="display:none;">Generate Infographic</button>
+                    </div>
+                </div>
+
+                <div class="force-step-bar" id="forceStepIndicator">
+                    <div class="force-step-chip active" data-step="0">1. Bottom Layer</div>
+                    <div class="force-step-chip" data-step="1">2. Middle Layer</div>
+                    <div class="force-step-chip" data-step="2">3. Top Layer</div>
+                </div>
+
+                <div id="forceGraphContainer" class="force-graph-container">
+                    <div class="center-msg">Click "Build Force Graph (50 JSON)" to start</div>
+                </div>
+
+                <div id="forceProgressPanel" class="force-progress-panel" style="display:none;">
+                    <div id="forceProgressText" class="force-progress-text">Preparing...</div>
+                    <div class="force-progress-track">
+                        <div id="forceProgressBar" class="force-progress-bar"></div>
                     </div>
                 </div>
             </div>
@@ -135,10 +117,39 @@
             <div class="panel-content">
                 <div id="tab-schema" class="tab-content active"><div class="center-msg">No Data</div></div>
                 <div id="tab-insight" class="tab-content"><div class="center-msg">Run Analysis First</div></div>
-                <div id="tab-palette" class="tab-content"><div class="center-msg">Select Region</div></div>
+
+                <div id="tab-palette" class="tab-content">
+                    <div class="data-row">
+                        <div class="data-label">Selected Palette Node</div>
+                        <div id="paletteNodeHint" class="data-value">No color scheme node selected</div>
+                    </div>
+
+                    <div class="data-row">
+                        <div class="data-label">Region Prompt (optional)</div>
+                        <input type="text" id="regionPromptInput" placeholder="e.g. sky, mountain, foreground object">
+                        <div class="data-value" style="font-size:10px; color:#6b7280;">Leave empty to extract palette from full image.</div>
+                    </div>
+
+                    <button id="btnGeneratePaletteFromNode" disabled>Extract Palette From Current Image</button>
+                    <div id="loading-palette-node" class="loader">GENERATING NODE PALETTE</div>
+
+                    <div class="palette-preview-wrap">
+                        <div id="refPlaceholder" class="center-msg">No palette reference image</div>
+                        <div class="canvas-container" id="canvasContainer" style="display:none;">
+                            <img id="mainImage" src="" alt="Reference">
+                            <svg id="interactionLayer" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+                        </div>
+                    </div>
+
+                    <div id="paletteOptionsPanel" class="palette-options-panel">
+                        <div class="center-msg">No extracted palettes</div>
+                    </div>
+
+                    <textarea id="palettePromptPreview" rows="4" readonly placeholder="Prompt preview will appear here..."></textarea>
+                </div>
 
                 <div id="tab-design" class="tab-content">
-                    <div class="center-msg">Click "Design Infographic"<br>to start planning</div>
+                    <div id="designSelectionSummary" class="center-msg">Build force graph and select nodes first</div>
                 </div>
             </div>
         </aside>

@@ -18,6 +18,11 @@ def test_llm_calls():
     print(f"API 返回结果: {api_res}")
     print("-" * 30)
 
+    print("正在测试远程 API 调用...")
+    api_res = LLMClient.call_doubao_seed_pro(test_messages)
+    print(f"API 返回结果: {api_res}")
+    print("-" * 30)
+
     # 测试 JSON 模式（如果你的模型支持）
     print("正在测试 API JSON 模式...")
     json_messages = [

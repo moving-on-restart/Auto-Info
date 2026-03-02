@@ -9,6 +9,9 @@ from app3.data_agent_project.config.settings import (
     AIHUBMIX_BASE_URL,
     REMOTE_MODEL_NAME,
     REMOTE_MODEL_MAX_TOKENS,
+    DOUBAO_MODEL_NAME,
+    DOUBAO_MODEL_MAX_TOKENS,
+    DOUBAO_THINKING_TYPE,
 )
 
 
@@ -26,6 +29,13 @@ class LLMClient:
                 api_key=AIHUBMIX_KEY,
             )
         return cls._client
+
+    @staticmethod
+    def _safe_extract_content(completion):
+        try:
+            return completion.choices[0].message.content
+        except Exception:
+            return "Error"
 
     @staticmethod
     def call_local(messages, temperature=0.1, json_mode=False):
@@ -75,11 +85,51 @@ class LLMClient:
                 kwargs["response_format"] = {"type": "json_object"}
 
             completion = client.chat.completions.create(**kwargs)
-            return completion.choices[0].message.content
+            return LLMClient._safe_extract_content(completion)
 
         except Exception as e:
             print(f"❌ 远程 API 调用失败: {e}")
             # 打印详细错误以便调试
             if hasattr(e, 'body'):
+                print(f"Details: {e.body}")
+            return "{}" if json_mode else "Error"
+
+    @staticmethod
+    def call_doubao_seed_pro(messages, temperature=0.1, json_mode=False, thinking_type=None):
+        """
+        Call doubao-seed-2-0-pro through AIHubMix (OpenAI-compatible API).
+        thinking_type: disabled | enabled | auto
+        """
+        try:
+            client = LLMClient._get_client()
+
+            resolved_thinking = (thinking_type or DOUBAO_THINKING_TYPE or "disabled").strip().lower()
+            if resolved_thinking not in {"disabled", "enabled", "auto"}:
+                resolved_thinking = "disabled"
+
+            kwargs = {
+                "model": DOUBAO_MODEL_NAME,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": DOUBAO_MODEL_MAX_TOKENS,
+                "thinking": {"type": resolved_thinking},
+            }
+            if json_mode:
+                kwargs["response_format"] = {"type": "json_object"}
+
+            try:
+                completion = client.chat.completions.create(**kwargs)
+            except TypeError:
+                # Some SDK versions do not accept custom top-level fields like `thinking`.
+                thinking_payload = kwargs.pop("thinking", None)
+                if thinking_payload:
+                    kwargs["extra_body"] = {"thinking": thinking_payload}
+                completion = client.chat.completions.create(**kwargs)
+
+            return LLMClient._safe_extract_content(completion)
+
+        except Exception as e:
+            print(f"Doubao API call failed: {e}")
+            if hasattr(e, "body"):
                 print(f"Details: {e.body}")
             return "{}" if json_mode else "Error"

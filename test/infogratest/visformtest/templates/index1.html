@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>信息图自适应推演引擎</title>
+    <script src="https://cdn.staticfile.net/d3/7.8.5/d3.min.js"></script>
+    <style>
+        body { margin: 0; background: #f0f2f5; font-family: "Segoe UI", sans-serif; overflow: hidden; display: flex; flex-direction: column; height: 100vh; }
+        #header { background: white; padding: 15px 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); display: flex; justify-content: space-between; align-items: center; z-index: 10; }
+        .steps { display: flex; gap: 20px; font-weight: bold; color: #95a5a6; }
+        .step { padding: 8px 15px; border-radius: 20px; transition: 0.3s; }
+        .step.active { background: #3498db; color: white; box-shadow: 0 4px 10px rgba(52, 152, 219, 0.3); }
+        .step.done { color: #2ecc71; }
+        .actions button { padding: 10px 20px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 14px; margin-left:10px; }
+        #btn-reset { background: #ecf0f1; color: #7f8c8d; }
+        #btn-next { background: #3498db; color: white; }
+        #btn-generate { background: #2ecc71; color: white; display: none; }
+        #canvas-container { flex: 1; position: relative; }
+        .tooltip { position: absolute; padding: 12px 16px; font-size: 13px; background: rgba(255, 255, 255, 0.98); border-radius: 8px; pointer-events: none; opacity: 0; box-shadow: 0 4px 20px rgba(0,0,0,0.15); border: 1px solid #eee; z-index: 100;}
+    </style>
+</head>
+<body>
+
+    <div id="header">
+        <div class="steps">
+            <div class="step active" id="step-0">1. 底层环境建模</div>
+            <div class="step" id="step-1">2. 视觉映射组装</div>
+            <div class="step" id="step-2">3. 语义注解配置</div>
+        </div>
+        <div class="actions">
+            <button id="btn-reset" onclick="resetFlow()">↻ 初始化推演</button>
+            <button id="btn-next" onclick="nextStep()">确认状态 ➔ 向下推演</button>
+            <button id="btn-generate" onclick="generateJSON()">✨ 固化最终方案</button>
+        </div>
+    </div>
+
+    <div id="canvas-container"></div>
+    <div class="tooltip" id="tooltip"></div>
+
+    <script>
+        const fullGraph = {{ graph_data | tojson | safe }};
+        const width = document.getElementById('canvas-container').clientWidth;
+        const height = window.innerHeight - 70;
+        const color = d3.scaleOrdinal(d3.schemeSet3); // 使用离散度更高的颜色系
+        const tooltip = d3.select("#tooltip");
+
+        const layerOrder = ["bottom_layer", "middle_layer", "top_layer"];
+        let currentStep = 0;
+        let selectedNodes = [];
+
+        const getSourceId = (l) => typeof l.source === 'object' ? l.source.id : l.source;
+        const getTargetId = (l) => typeof l.target === 'object' ? l.target.id : l.target;
+
+        const svg = d3.select("#canvas-container").append("svg")
+            .attr("width", width).attr("height", height)
+            .call(d3.zoom().on("zoom", (event) => g.attr("transform", event.transform)));
+        const g = svg.append("g");
+
+        let linkElements = g.append("g").attr("class", "links").selectAll("line");
+        let nodeElements = g.append("g").attr("class", "nodes").selectAll("g");
+
+        // ----------------------------------------------------
+        // 核心算法 4：多模态物理引力引擎定制
+        // ----------------------------------------------------
+        const simulation = d3.forceSimulation()
+            .force("link", d3.forceLink().id(d => d.id)
+                // 距离算法：同层高频词靠得很近，跨层保持合理间距
+                .distance(d => d.is_intra ? (50 - d.jaccard * 40) : 200)
+                // 引力算法：同层相关性越高，拉扯力越强；跨层则保持稳定
+                .strength(d => d.is_intra ? d.jaccard * 2 : d.jaccard * 0.8)
+            )
+            .force("charge", d3.forceManyBody().strength(-500))
+            .force("x", d3.forceX(d => {
+                let idx = layerOrder.indexOf(d.layer);
+                return (idx + 1) * (width / 4);
+            }).strength(0.8))
+            .force("y", d3.forceY(height / 2).strength(0.1))
+            .force("collide", d3.forceCollide().radius(d => Math.sqrt(d.val) * 4 + 30))
+            .on("tick", ticked);
+
+        function ticked() {
+            linkElements
+                .attr("x1", d => d.source.x).attr("y1", d => d.source.y)
+                .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+            nodeElements.attr("transform", d => `translate(${d.x},${d.y})`);
+        }
+
+        // ----------------------------------------------------
+        // 核心算法 5：基于马尔可夫链的动态过滤渲染
+        // ----------------------------------------------------
+        function renderStep() {
+            let activeNodes = [...selectedNodes];
+            let candidateNodes = [];
+
+            if (currentStep < layerOrder.length) {
+                let currentLayer = layerOrder[currentStep];
+                candidateNodes = fullGraph.nodes.filter(n => n.layer === currentLayer);
+
+                // 条件概率过滤：不曾连线的节点被绝对阻断
+                if (currentStep > 0) {
+                    let pastSelectedIds = new Set(selectedNodes.map(n => n.id));
+                    let conditionallyValidIds = new Set();
+
+                    fullGraph.links.forEach(l => {
+                        let sId = getSourceId(l), tId = getTargetId(l);
+                        // 必须是跨层连线（排除同层），且一端是已选定的历史节点
+                        if (!l.is_intra) {
+                            if (pastSelectedIds.has(sId)) conditionallyValidIds.add(tId);
+                            if (pastSelectedIds.has(tId)) conditionallyValidIds.add(sId);
+                        }
+                    });
+
+                    // 严苛剪枝：只保留在数据池中真正存在上下文关联的候选节点
+                    candidateNodes = candidateNodes.filter(n => conditionallyValidIds.has(n.id));
+                }
+                activeNodes.push(...candidateNodes);
+            }
+
+            let activeNodeIds = new Set(activeNodes.map(n => n.id));
+
+            // 边过滤算法
+            let activeLinks = fullGraph.links.filter(l => {
+                let sId = getSourceId(l), tId = getTargetId(l);
+                if (!activeNodeIds.has(sId) || !activeNodeIds.has(tId)) return false;
+
+                // 规则A：同层隐形聚类边，只要两端都在激活节点里就生效（用于维持布局）
+                if (l.is_intra) return true;
+
+                // 规则B：跨层显式边，必须有一端属于已被确立的选中节点
+                let isSourceSelected = selectedNodes.some(n => n.id === sId);
+                let isTargetSelected = selectedNodes.some(n => n.id === tId);
+                return isSourceSelected || isTargetSelected;
+            });
+
+            updateD3(activeNodes, activeLinks);
+            updateUI();
+        }
+
+        function updateD3(nodes, links) {
+            nodeElements = nodeElements.data(nodes, d => d.id);
+            nodeElements.exit().transition().duration(400).style("opacity", 0).remove();
+
+            const nodeEnter = nodeElements.enter().append("g")
+                .style("opacity", 0)
+                .call(d3.drag()
+                    .on("start", (e, d) => { if (!e.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+                    .on("drag", (e, d) => { d.fx = e.x; d.fy = e.y; })
+                    .on("end", (e, d) => { if (!e.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }));
+
+            // 算法 1：频率中心性控制面积大小
+            nodeEnter.append("circle")
+                .attr("r", d => Math.sqrt(d.val) * 3 + 12)
+                .attr("fill", d => color(d.group))
+                .attr("stroke", "#fff").attr("stroke-width", 3)
+                .style("cursor", "pointer")
+                .on("mouseover", showTooltip).on("mouseout", hideTooltip)
+                .on("click", handleNodeClick);
+
+            nodeEnter.append("text")
+                .text(d => d.name)
+                .attr("y", d => Math.sqrt(d.val) * 3 + 26)
+                .attr("text-anchor", "middle")
+                .style("font-size", "12px").style("font-weight", "600").style("fill", "#2c3e50")
+                .style("pointer-events", "none");
+
+            nodeElements = nodeEnter.merge(nodeElements);
+            nodeElements.transition().duration(500).style("opacity", 1);
+            updateNodeHighlight();
+
+            linkElements = linkElements.data(links, d => `${getSourceId(d)}-${getTargetId(d)}`);
+            linkElements.exit().remove();
+
+            // 算法 3：跨层边权重映射为笔触粗细 (同层聚类边设置为透明)
+            const linkEnter = linkElements.enter().append("line")
+                .attr("stroke", d => d.is_intra ? "transparent" : "#bdc3c7")
+                .attr("stroke-opacity", d => d.is_intra ? 0 : 0.6)
+                .attr("stroke-width", d => d.is_intra ? 0 : Math.max(1, d.jaccard * 12));
+
+            linkElements = linkEnter.merge(linkElements);
+
+            simulation.nodes(nodes);
+            simulation.force("link").links(links);
+            simulation.alpha(1).restart();
+        }
+
+        function handleNodeClick(event, d) {
+            if (layerOrder.indexOf(d.layer) !== currentStep) return;
+            const existingIndex = selectedNodes.findIndex(n => n.id === d.id);
+            if (existingIndex > -1) selectedNodes.splice(existingIndex, 1);
+            else selectedNodes.push(d);
+            updateNodeHighlight();
+        }
+
+        function updateNodeHighlight() {
+            nodeElements.select("circle")
+                .attr("stroke", d => selectedNodes.some(s => s.id === d.id) ? "#e74c3c" : "#fff")
+                .attr("stroke-width", d => selectedNodes.some(s => s.id === d.id) ? 4 : 3)
+                .attr("opacity", d => {
+                    if (layerOrder.indexOf(d.layer) !== currentStep) return 1;
+                    return selectedNodes.some(s => s.id === d.id) ? 1 : 0.6;
+                });
+        }
+
+        function nextStep() {
+            if (selectedNodes.filter(n => n.layer === layerOrder[currentStep]).length === 0) {
+                alert("算法阻断：请在该层级选择至少一个实体作为推演锚点。");
+                return;
+            }
+            currentStep++;
+            renderStep();
+        }
+
+        function updateUI() {
+            for (let i = 0; i < 3; i++) {
+                let el = document.getElementById(`step-${i}`);
+                if (i < currentStep) el.className = "step done";
+                else if (i === currentStep) el.className = "step active";
+                else el.className = "step";
+            }
+            if (currentStep >= layerOrder.length) {
+                document.getElementById("btn-next").style.display = "none";
+                document.getElementById("btn-generate").style.display = "inline-block";
+            }
+        }
+
+        function resetFlow() {
+            currentStep = 0; selectedNodes = [];
+            document.getElementById("btn-next").style.display = "inline-block";
+            document.getElementById("btn-generate").style.display = "none";
+            renderStep();
+        }
+
+        function generateJSON() {
+            let result = { "generated_scheme": { "element_pool": { "bottom_layer": [], "middle_layer": [], "top_layer": [] } } };
+            selectedNodes.forEach(d => {
+                if(result.generated_scheme.element_pool[d.layer]){
+                    result.generated_scheme.element_pool[d.layer].push({
+                        "category": d.group, "selected_value": d.name, "description": d.desc
+                    });
+                }
+            });
+            console.log(JSON.stringify(result, null, 2));
+            alert("✅ 叙事逻辑组装完成！查阅浏览器控制台获取最终方案。");
+        }
+
+        function showTooltip(event, d) {
+            tooltip.transition().duration(200).style("opacity", 1);
+            tooltip.html(`<b>${d.name}</b><br><span style='color:#7f8c8d;font-size:11px;'>语义分组：${d.group}</span><br><span style='color:#e67e22;font-size:11px;'>频次权重：${d.val}</span><br><br>${d.desc || ""}`)
+                   .style("left", (event.pageX + 15) + "px").style("top", (event.pageY - 20) + "px");
+        }
+        function hideTooltip() { tooltip.transition().duration(200).style("opacity", 0); }
+
+        setTimeout(renderStep, 500);
+    </script>
+</body>
+</html>

@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <title>D3.js 信息图元素配方探索 (前后端分离版)</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        /* 样式与之前保持一致，为保持代码简洁在此略写部分重复样式，重点看JS部分 */
+        body { display: flex; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; height: 100vh; background-color: #1e1e2f; color: #fff; overflow: hidden; }
+        #graph-container { width: 75%; height: 100%; position: relative; }
+        #sidebar { width: 25%; height: 100%; background: #2a2a3f; padding: 25px; box-sizing: border-box; box-shadow: -5px 0 15px rgba(0,0,0,0.5); overflow-y: auto; display: flex; flex-direction: column; }
+        .panel-title { font-size: 1.4em; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid #5a5a8c; padding-bottom: 10px; color: #e0e0ff; }
+        .panel-desc { font-size: 0.9em; color: #a0a0c0; margin-bottom: 20px; }
+        .node { stroke: #fff; stroke-width: 1.5px; cursor: pointer; transition: stroke-width 0.2s; }
+        .node:hover { stroke: #ffeb3b; stroke-width: 3px; }
+        .link { stroke: #555; stroke-opacity: 0.6; }
+        .label { font-size: 12px; fill: #dcdcdc; pointer-events: none; font-weight: 300; text-shadow: 1px 1px 2px #000; }
+        #selection-list { flex-grow: 1; overflow-y: auto; }
+        .selected-item { background: #3f3f5a; padding: 12px; margin-bottom: 12px; border-radius: 6px; border-left: 5px solid #00bcd4; cursor: pointer; transition: background 0.2s; }
+        .selected-item:hover { background: #4f4f6a; }
+        .selected-item strong { color: #00bcd4; font-size: 0.85em; text-transform: uppercase; letter-spacing: 1px; }
+        .selected-item div { margin-top: 4px; font-size: 1.1em; }
+        button { padding: 15px; background: linear-gradient(135deg, #00bcd4, #007ac1); color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 20px; transition: transform 0.1s, box-shadow 0.2s; }
+        button:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0, 188, 212, 0.4); }
+        button:disabled { background: #555; cursor: not-allowed; transform: none; box-shadow: none; }
+        #tooltip { position: absolute; text-align: left; padding: 10px 15px; font: 13px sans-serif; background: rgba(20, 20, 30, 0.9); border: 1px solid #445; border-radius: 6px; pointer-events: none; opacity: 0; color: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.3); z-index: 10; transition: opacity 0.2s; }
+        .tooltip-title { font-weight: bold; color: #00bcd4; margin-bottom: 5px; }
+        #loading { position: absolute; top: 50%; left: 37.5%; transform: translate(-50%, -50%); font-size: 1.5em; color: #00bcd4; }
+    </style>
+</head>
+<body>
+    <div id="tooltip"></div>
+    <div id="loading">正在向后端请求图谱数据...</div>
+    <div id="graph-container"></div>
+
+    <div id="sidebar">
+        <div class="panel-title">信息图配方构建器</div>
+        <div class="panel-desc">从左侧网络图中探索并点击节点，将其加入您的定制生成配方中。</div>
+        <div id="selection-list">
+            <p style="color:#778; font-size:0.95em; text-align:center; margin-top:50px;">👈 尚未选择任何元素<br>请在图中点击添加</p>
+        </div>
+        <button id="submit-btn" onclick="submitToBackend()">应用此配方生成</button>
+    </div>
+
+        <script>
+            // 之前是 const API_BASE_URL = 'http://localhost:5000/api';
+            // 现在改为相对路径，这样不论你部署到哪里（本地还是服务器）都不会出错
+            const API_BASE_URL = '/api';
+            const selectedSet = new Map();
+
+            // 1. 页面加载完成后，从后端请求数据
+            document.addEventListener('DOMContentLoaded', () => {
+                fetch(`${API_BASE_URL}/graph-data`)
+                .then(response => {
+                    if (!response.ok) throw new Error('网络响应异常');
+                    return response.json();
+                })
+                .then(data => {
+                    document.getElementById('loading').style.display = 'none';
+                    initD3Graph(data); // 拿到数据后初始化图表
+                })
+                .catch(error => {
+                    document.getElementById('loading').innerText = '数据加载失败: ' + error.message;
+                    console.error('Fetch error:', error);
+                });
+        });
+
+        // 2. 初始化 D3 图表逻辑 (与之前一致，封装在函数中)
+        function initD3Graph(graphData) {
+            const container = document.getElementById('graph-container');
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+            const color = d3.scaleOrdinal(d3.schemeSet2);
+
+            const svg = d3.select("#graph-container").append("svg")
+                .attr("width", width).attr("height", height);
+            const g = svg.append("g");
+
+            const zoom = d3.zoom().scaleExtent([0.1, 4]).on("zoom", (event) => g.attr("transform", event.transform));
+            svg.call(zoom);
+
+            const simulation = d3.forceSimulation(graphData.nodes)
+                .force("link", d3.forceLink(graphData.links).id(d => d.id).distance(100))
+                .force("charge", d3.forceManyBody().strength(-300))
+                .force("center", d3.forceCenter(width / 2, height / 2))
+                .force("collide", d3.forceCollide().radius(d => d.radius + 10).iterations(2));
+
+            const link = g.append("g").attr("class", "links").selectAll("line")
+                .data(graphData.links).enter().append("line")
+                .attr("class", "link").attr("stroke-width", d => Math.sqrt(d.value) * 2);
+
+            const tooltip = d3.select("#tooltip");
+
+            const node = g.append("g").attr("class", "nodes").selectAll("circle")
+                .data(graphData.nodes).enter().append("circle")
+                .attr("class", "node").attr("r", d => d.radius).attr("fill", d => color(d.group))
+                .call(d3.drag()
+                    .on("start", (event, d) => { if (!event.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+                    .on("drag", (event, d) => { d.fx = event.x; d.fy = event.y; })
+                    .on("end", (event, d) => { if (!event.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }));
+
+            const labels = g.append("g").selectAll("text")
+                .data(graphData.nodes).enter().append("text")
+                .attr("class", "label").attr("dx", d => d.radius + 5).attr("dy", 4).text(d => d.id);
+
+            const linkedByIndex = {};
+            graphData.links.forEach(d => {
+                linkedByIndex[d.source.id + "," + d.target.id] = 1;
+                linkedByIndex[d.target.id + "," + d.source.id] = 1;
+            });
+            function isConnected(a, b) { return linkedByIndex[a.id + "," + b.id] || linkedByIndex[b.id + "," + a.id] || a.id === b.id; }
+
+            node.on("mouseover", function(event, d) {
+                tooltip.transition().duration(200).style("opacity", 1);
+                tooltip.html(`<div class="tooltip-title">${d.group}</div>名称：${d.id}<br/>推荐频次：${d.value}`)
+                       .style("left", (event.pageX + 15) + "px").style("top", (event.pageY - 28) + "px");
+                node.style("opacity", o => isConnected(d, o) ? 1 : 0.1);
+                link.style("opacity", o => (o.source === d || o.target === d) ? 1 : 0.05);
+                labels.style("opacity", o => isConnected(d, o) ? 1 : 0.1);
+            }).on("mouseout", function(d) {
+                tooltip.transition().duration(500).style("opacity", 0);
+                node.style("opacity", 1); link.style("opacity", 1); labels.style("opacity", 1);
+            }).on("click", function(event, d) {
+                toggleSelection(d);
+            });
+
+            simulation.on("tick", () => {
+                link.attr("x1", d => d.source.x).attr("y1", d => d.source.y).attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+                node.attr("cx", d => d.x).attr("cy", d => d.y);
+                labels.attr("x", d => d.x).attr("y", d => d.y);
+            });
+
+            window.addEventListener('resize', () => {
+                const newWidth = container.clientWidth; const newHeight = container.clientHeight;
+                svg.attr("width", newWidth).attr("height", newHeight);
+                simulation.force("center", d3.forceCenter(newWidth / 2, newHeight / 2));
+                simulation.alpha(0.3).restart();
+            });
+        }
+
+        // 3. 侧边栏选择逻辑
+        const selectionListDiv = document.getElementById('selection-list');
+        function toggleSelection(d) {
+            const nodeId = d.id;
+            if (selectedSet.has(nodeId)) {
+                selectedSet.delete(nodeId);
+                const item = document.getElementById('sel-' + CSS.escape(nodeId));
+                if(item) selectionListDiv.removeChild(item);
+                if(selectedSet.size === 0) {
+                    selectionListDiv.innerHTML = '<p style="color:#778; font-size:0.95em; text-align:center; margin-top:50px;">👈 尚未选择任何元素<br>请在图中点击添加</p>';
+                }
+            } else {
+                selectedSet.set(nodeId, d);
+                if(selectedSet.size === 1) selectionListDiv.innerHTML = '';
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'selected-item';
+                itemDiv.id = 'sel-' + nodeId;
+                itemDiv.innerHTML = `<strong>${d.group}</strong><div>${nodeId}</div>`;
+                itemDiv.onclick = () => toggleSelection(d);
+                selectionListDiv.appendChild(itemDiv);
+            }
+        }
+
+        // 4. 将选中的配方提交给后端 API
+        function submitToBackend() {
+            if (selectedSet.size === 0) {
+                alert("请先从左侧图谱中点击选择需要的配置节点！");
+                return;
+            }
+
+            const btn = document.getElementById('submit-btn');
+            btn.disabled = true;
+            btn.innerText = "提交中...";
+
+            const finalSelection = Array.from(selectedSet.keys());
+
+            fetch(`${API_BASE_URL}/generate-infographic`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ selectedNodes: finalSelection })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if(data.status === 'success') {
+                    alert(`✅ 成功：${data.message}`);
+                } else {
+                    alert(`❌ 错误：${data.message}`);
+                }
+            })
+            .catch(err => {
+                console.error('提交失败:', err);
+                alert("服务器请求失败，请检查后端服务是否运行。");
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.innerText = "应用此配方生成";
+            });
+        }
+    </script>
+</body>
+</html>

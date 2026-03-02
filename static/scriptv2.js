@@ -1,818 +1,1238 @@
-// --- 状态变量 ---
-let currentFilePath = "";
+﻿let currentFilePath = "";
 let currentAnalysisAnswer = "";
 let currentChartData = null;
-let currentRefImagePath = "";
-let currentPlan = null;         // 存储完整的设计方案 JSON
-let wizardStep = 0;             // 当前向导步骤 (0-3)
-let designSelections = {};      // 存储用户的选择 {groupId: value}
-let designSelectionMeta = {};   // 存储结构化选项（如调色板数据）
-let generatedAssets = {};       // 缓存已生成的素材 URL {keywords: url}
-let galleryData = []; // 存储历史方案 { id, imgUrl, selections }
-let activeGalleryIndex = 0; // 当前查看的方案索引
-let extractedPaletteResults = []; // 提取到的 palette 结果
-let paletteOptionMetaByLabel = {}; // { label: palette payload }
 
-// --- UI 工具函数 ---
+let graphBundle = null;
+let fullGraphData = null;
+let graphNodeMap = {};
+let groupDefaults = {};
+let forceNodeTooltipEl = null;
+
+const layerOrder = ["bottom_layer", "middle_layer", "top_layer"];
+let forceStep = 0;
+let selectedNodes = [];
+
+let selectedColorNodeId = "";
+let selectedPaletteMeta = null;
+let extractedPaletteResults = [];
+let currentRefImagePath = "";
+
+let galleryData = [];
+let activeGalleryIndex = 0;
+let forceGraphJobId = null;
+let forceGraphProgressTimer = null;
+let forceGraphPollingInFlight = false;
+let forceGraphLastProgress = -1;
+let forceGraphPollDelayMs = 3500;
+
+let colorScale = null;
+
+function getColorScale() {
+    if (typeof d3 === "undefined") return null;
+    if (!colorScale) {
+        const fallbackScheme = ["#2563eb", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#14b8a6", "#f97316"];
+        const scheme = Array.isArray(d3.schemeSet3) && d3.schemeSet3.length ? d3.schemeSet3 : fallbackScheme;
+        colorScale = d3.scaleOrdinal(scheme);
+    }
+    return colorScale;
+}
+
+function colorForGroup(key) {
+    const scale = getColorScale();
+    if (scale) return scale(String(key || "unknown"));
+
+    const fallback = ["#2563eb", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#14b8a6", "#f97316"];
+    const text = String(key || "unknown");
+    let hash = 0;
+    for (let i = 0; i < text.length; i += 1) {
+        hash = ((hash << 5) - hash) + text.charCodeAt(i);
+        hash |= 0;
+    }
+    return fallback[Math.abs(hash) % fallback.length];
+}
+
 function toggleLoading(id, show) {
     const el = document.getElementById(id);
-    if(el) el.style.display = show ? 'block' : 'none';
+    if (el) el.style.display = show ? "block" : "none";
+}
+
+function escapeHtml(text) {
+    return String(text || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
+function getForceNodeTooltip() {
+    if (forceNodeTooltipEl) return forceNodeTooltipEl;
+    const el = document.createElement("div");
+    el.className = "force-node-tooltip";
+    el.style.display = "none";
+    document.body.appendChild(el);
+    forceNodeTooltipEl = el;
+    return forceNodeTooltipEl;
+}
+
+function getLayerLabel(layerKey) {
+    if (layerKey === "bottom_layer") return "Bottom Layer";
+    if (layerKey === "middle_layer") return "Middle Layer";
+    if (layerKey === "top_layer") return "Top Layer";
+    return layerKey || "Unknown";
+}
+
+function getNodeDescription(node) {
+    const directDesc = String(node?.desc || "").trim();
+    if (directDesc) return directDesc;
+    const payload = node?.option_payload;
+    if (payload && typeof payload === "object") {
+        const fallback = payload.desc || payload.description || payload.text || payload.content || payload.suggestion;
+        return String(fallback || "").trim();
+    }
+    return "";
+}
+
+function moveForceNodeTooltip(event) {
+    const tooltip = getForceNodeTooltip();
+    if (tooltip.style.display === "none") return;
+
+    const gap = 12;
+    const maxX = window.innerWidth - tooltip.offsetWidth - 8;
+    const maxY = window.innerHeight - tooltip.offsetHeight - 8;
+    const x = Math.max(8, Math.min(maxX, event.clientX + gap));
+    const y = Math.max(8, Math.min(maxY, event.clientY + gap));
+
+    tooltip.style.left = `${x}px`;
+    tooltip.style.top = `${y}px`;
+}
+
+function showForceNodeTooltip(event, node) {
+    const tooltip = getForceNodeTooltip();
+    const desc = getNodeDescription(node);
+    tooltip.innerHTML = `
+        <div class="tt-title">${escapeHtml(node?.name || "Node")}</div>
+        <div class="tt-row"><span>Category</span><b>${escapeHtml(node?.group || node?.group_id || "Unknown")}</b></div>
+        <div class="tt-row"><span>Layer</span><b>${escapeHtml(getLayerLabel(node?.layer))}</b></div>
+        <div class="tt-row"><span>Frequency</span><b>${escapeHtml(node?.val ?? "N/A")}</b></div>
+        <div class="tt-row"><span>Group ID</span><b>${escapeHtml(node?.group_id || "N/A")}</b></div>
+        ${desc ? `<div class="tt-desc">${escapeHtml(desc)}</div>` : ""}
+    `;
+    tooltip.style.display = "block";
+    moveForceNodeTooltip(event);
+}
+
+function hideForceNodeTooltip() {
+    const tooltip = getForceNodeTooltip();
+    tooltip.style.display = "none";
+}
+
+function setForceProgress(percent, text, visible = true) {
+    const panel = document.getElementById("forceProgressPanel");
+    const bar = document.getElementById("forceProgressBar");
+    const msg = document.getElementById("forceProgressText");
+    if (!panel || !bar || !msg) return;
+
+    panel.style.display = visible ? "block" : "none";
+    const safePercent = Math.max(0, Math.min(100, Number(percent) || 0));
+    bar.style.width = `${safePercent}%`;
+    msg.textContent = text || `${safePercent}%`;
+}
+
+function stopForceGraphPolling() {
+    if (forceGraphProgressTimer) {
+        clearTimeout(forceGraphProgressTimer);
+        forceGraphProgressTimer = null;
+    }
+    forceGraphPollingInFlight = false;
+}
+
+function scheduleForceGraphPolling(delayMs) {
+    stopForceGraphPolling();
+    const safeDelay = Math.max(1200, Number(delayMs) || forceGraphPollDelayMs || 3500);
+    forceGraphProgressTimer = setTimeout(pollForceGraphProgressOnce, safeDelay);
+}
+
+async function pollForceGraphProgressOnce() {
+    if (!forceGraphJobId || forceGraphPollingInFlight) return;
+    forceGraphPollingInFlight = true;
+
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 20000);
+        const progressRes = await fetch(`/infographic/force_graph_plan/progress/${forceGraphJobId}`, {
+            signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        const progressData = await progressRes.json();
+
+        if (progressData.status !== "success") {
+            setForceProgress(100, progressData.error || "Progress fetch failed", true);
+            stopForceGraphPolling();
+            toggleLoading("loading-info", false);
+            document.getElementById("btnGenInfo").disabled = false;
+            forceGraphJobId = null;
+            return;
+        }
+
+        const pct = Number(progressData.progress || 0);
+        const statusText = `${progressData.message || "Running"} | success ${progressData.success_count || 0}/${progressData.target_count || 50}, failed ${progressData.failed_count || 0}`;
+        setForceProgress(pct, statusText, true);
+
+        if (progressData.job_status === "completed") {
+            stopForceGraphPolling();
+            const ok = applyForceGraphBundle(progressData.result || {});
+            setForceProgress(100, ok ? "Force graph completed." : "Completed with empty graph.", true);
+            toggleLoading("loading-info", false);
+            document.getElementById("btnGenInfo").disabled = false;
+            forceGraphJobId = null;
+            return;
+        }
+
+        if (progressData.job_status === "failed") {
+            stopForceGraphPolling();
+            const err = progressData.error || "Force graph generation failed";
+            setForceProgress(100, err, true);
+            alert(err);
+            toggleLoading("loading-info", false);
+            document.getElementById("btnGenInfo").disabled = false;
+            forceGraphJobId = null;
+            return;
+        }
+
+        if (pct > forceGraphLastProgress) {
+            forceGraphPollDelayMs = 2500;
+        } else {
+            forceGraphPollDelayMs = Math.min(9000, forceGraphPollDelayMs + 1000);
+        }
+        forceGraphLastProgress = pct;
+    } catch (pollErr) {
+        const timeoutLike =
+            pollErr?.name === "AbortError" ||
+            String(pollErr).toLowerCase().includes("timeout") ||
+            String(pollErr).toLowerCase().includes("network");
+
+        if (timeoutLike && forceGraphJobId) {
+            forceGraphPollDelayMs = Math.min(10000, forceGraphPollDelayMs + 1500);
+            setForceProgress(
+                Math.max(1, forceGraphLastProgress > 0 ? forceGraphLastProgress : 1),
+                `Waiting for backend response... next poll in ${Math.round(forceGraphPollDelayMs / 1000)}s`,
+                true
+            );
+        } else {
+            stopForceGraphPolling();
+            setForceProgress(100, `Progress polling error: ${pollErr}`, true);
+            toggleLoading("loading-info", false);
+            document.getElementById("btnGenInfo").disabled = false;
+            forceGraphJobId = null;
+            return;
+        }
+    } finally {
+        forceGraphPollingInFlight = false;
+    }
+
+    if (forceGraphJobId) {
+        scheduleForceGraphPolling(forceGraphPollDelayMs);
+    }
+}
+
+function applyForceGraphBundle(data) {
+    graphBundle = data;
+    fullGraphData = data.graph_data || { nodes: [], links: [] };
+    groupDefaults = data.group_defaults || {};
+
+    graphNodeMap = {};
+    (fullGraphData.nodes || []).forEach((node) => {
+        graphNodeMap[node.id] = node;
+    });
+
+    if (!fullGraphData.nodes || fullGraphData.nodes.length === 0) {
+        alert("No nodes returned from force-graph planning.");
+        return false;
+    }
+
+    if (Number(data.success_count || 0) < Number(data.target_count || 50)) {
+        alert(`Generated ${data.success_count} valid JSON plans (target ${data.target_count || 50}).`);
+    }
+
+    initForceExplorer();
+    switchTab(3);
+    return true;
 }
 
 function switchTab(index) {
-    document.querySelectorAll('.tab-btn').forEach((b, i) => b.classList.toggle('active', i === index));
-    document.querySelectorAll('.tab-content').forEach((c, i) => c.classList.toggle('active', i === index));
+    document.querySelectorAll(".tab-btn").forEach((b, i) => b.classList.toggle("active", i === index));
+    document.querySelectorAll(".tab-content").forEach((c, i) => c.classList.toggle("active", i === index));
 }
-
-function switchInputMode(mode) {
-    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.mode-panel').forEach(p => p.classList.remove('active'));
-
-    if(mode === 'gen') {
-        document.querySelector('.mode-btn:nth-child(1)').classList.add('active');
-        document.getElementById('panel-gen').classList.add('active');
-    } else {
-        document.querySelector('.mode-btn:nth-child(2)').classList.add('active');
-        document.getElementById('panel-upload').classList.add('active');
-    }
-}
+window.switchTab = switchTab;
 
 function toHexColor(rgb) {
     if (!Array.isArray(rgb) || rgb.length < 3) return null;
     const clamp = (n) => Math.max(0, Math.min(255, Number(n) || 0));
     return "#" + [clamp(rgb[0]), clamp(rgb[1]), clamp(rgb[2])]
-        .map(v => v.toString(16).padStart(2, '0'))
-        .join('')
+        .map((v) => v.toString(16).padStart(2, "0"))
+        .join("")
         .toUpperCase();
 }
 
-function paletteToHexPreview(palette) {
-    if (!Array.isArray(palette) || palette.length === 0) return "色值: N/A";
-    const hexList = palette.slice(0, 5).map(toHexColor).filter(Boolean);
-    return hexList.length ? `色值: ${hexList.join(' / ')}` : "色值: N/A";
-}
-
-function buildColorSchemeOptions(baseOptions) {
-    const safeBase = Array.isArray(baseOptions) ? baseOptions : [];
-    paletteOptionMetaByLabel = {};
-
-    if (!Array.isArray(extractedPaletteResults) || extractedPaletteResults.length === 0) {
-        return safeBase;
-    }
-
-    const paletteOptions = extractedPaletteResults
-        .filter(item => Array.isArray(item.palette) && item.palette.length > 0)
-        .map((item, idx) => {
-            const sourceLabel = item.label || `对象${idx + 1}`;
-            const harmonyText = typeof item.harmony_score === 'number' ? item.harmony_score.toFixed(3) : 'N/A';
-            const optionLabel = `调色板配色-${sourceLabel}-${idx + 1}`;
-
-            paletteOptionMetaByLabel[optionLabel] = {
-                type: 'palette',
-                label: optionLabel,
-                source_label: sourceLabel,
-                palette: item.palette,
-                harmony_score: (item.harmony_score !== undefined ? item.harmony_score : null)
-            };
-
-            return {
-                value: `palette_${idx}`,
-                label: optionLabel,
-                desc: `来源对象: ${sourceLabel}（#${idx + 1}） | ${paletteToHexPreview(item.palette)} | Harmony: ${harmonyText}`
-            };
-        });
-
-    return safeBase.concat(paletteOptions);
-}
-
-// ================= 步骤 1: 上传数据 (不变) =================
-document.getElementById('btnUpload').addEventListener('click', async () => {
-    const fileInput = document.getElementById('fileInput');
-    if(fileInput.files.length === 0) return alert("Select CSV first");
-
-    const formData = new FormData();
-    formData.append('file', fileInput.files[0]);
-    toggleLoading('loading-upload', true);
-    document.getElementById('btnUpload').disabled = true;
-
-    try {
-        const res = await fetch('/upload_csv', { method: 'POST', body: formData });
-        const data = await res.json();
-        if(data.status === 'success') {
-            currentFilePath = data.filepath;
-            document.getElementById('btnAnalyze').disabled = false;
-            renderSchema(data.meta);
-            const descBox = document.getElementById('tableDesc');
-            if(data.description) {
-                descBox.value = data.description;
-                descBox.style.backgroundColor = "#f0fdf4";
-                setTimeout(() => descBox.style.backgroundColor = "#fbfbfb", 1000);
-            }
-            alert("Data Loaded");
-        } else { alert(data.error); }
-    } catch(e) { alert("Error: " + e); }
-    finally {
-        toggleLoading('loading-upload', false);
-        document.getElementById('btnUpload').disabled = false;
-    }
-});
-
 function renderSchema(meta) {
-    const container = document.getElementById('tab-schema');
-    let html = `<div style="font-size:10px; color:#999; margin-bottom:15px;">${meta.rows} ROWS FOUND</div>`;
-    meta.columns.forEach(col => {
-        html += `<div style="margin-bottom:8px; border-bottom:1px solid #eee; padding-bottom:8px; display:flex; justify-content:space-between; align-items:center;">
-                    <span style="font-family:'JetBrains Mono'; font-size:11px; font-weight:600;">${col}</span>
-                    <span class="schema-type">STR/NUM</span>
-                 </div>`;
-    });
-    container.innerHTML = html;
-}
-
-// ================= 步骤 3: 分析与图表 (不变) =================
-document.getElementById('btnAnalyze').addEventListener('click', async () => {
-    const desc = document.getElementById('tableDesc').value;
-    const query = document.getElementById('queryInput').value;
-    if(!currentFilePath || !query) return alert("Missing data or query");
-
-    toggleLoading('loading-analyze', true);
-    document.getElementById('btnAnalyze').disabled = true;
-
-    try {
-        const res = await fetch('/analyze', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ filepath: currentFilePath, description: desc, query: query })
-        });
-        const data = await res.json();
-
-        if(data.status === 'success') {
-            currentAnalysisAnswer = data.answer;
-            document.getElementById('tab-insight').innerHTML = `<div style="font-size:12px; line-height:1.5">${data.answer.replace(/\n/g, '<br>')}</div>`;
-            switchTab(1); 
-
-            if(data.chart) {
-                currentChartData = data.chart;
-                const spec = JSON.parse(JSON.stringify(data.chart));
-                spec.width = "container";
-                spec.height = "container";
-                spec.autosize = { type: "fit", contains: "padding", resize: true };
-                document.getElementById('vis').innerHTML = "";
-                vegaEmbed('#vis', spec, { actions: false, renderer: 'canvas' }).catch(console.warn);
-
-                // 显示设计按钮
-                document.getElementById('btnGenInfo').style.display = 'block';
-                // [新增] 显示随机生成控件
-                document.getElementById('randomGenerateRow').style.display = 'flex';
-            }
-        } else { alert(data.error); }
-    } catch(e) { alert("Analysis Error: " + e); }
-    finally {
-        toggleLoading('loading-analyze', false);
-        document.getElementById('btnAnalyze').disabled = false;
-    }
-});
-
-// ================= 步骤 3.5: 设计向导 (重写核心逻辑) =================
-
-// 1. 开始设计：获取方案
-document.getElementById('btnGenInfo').addEventListener('click', async () => {
-    toggleLoading('loading-info', true);
-    try {
-        const res = await fetch('/infographic/plan', {
-            method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                description: document.getElementById('tableDesc').value,
-                query: document.getElementById('queryInput').value,
-                analysis_result: currentAnalysisAnswer,
-                chart_source: currentChartData
-            })
-        });
-        const data = await res.json();
-        if(data.status === 'success') {
-            currentPlan = data.plan;
-            wizardStep = 0;
-            designSelections = {}; // 重置选择
-            designSelectionMeta = {};
-            switchTab(3); // 自动切换到 Design 标签页
-            renderWizardStep();
-        } else { alert(data.error); }
-    } catch(e) { alert("Plan Error: " + e); }
-    finally { toggleLoading('loading-info', false); }
-});
-
-// ================= [新增] 随机生成 N 个信息图 =================
-function getRandomGenerationCount() {
-    const input = document.getElementById('randomCountInput');
-    const minVal = Number.parseInt(input.min || '1', 10);
-    const maxVal = Number.parseInt(input.max || '12', 10);
-    const count = Number.parseInt(input.value, 10);
-
-    if (Number.isNaN(count) || count < minVal || count > maxVal) {
-        alert(`Please input an integer between ${minVal} and ${maxVal}.`);
-        input.focus();
-        return null;
-    }
-
-    input.value = String(count);
-    return count;
-}
-
-document.getElementById('btnGenRandom').addEventListener('click', async () => {
-    const btn = document.getElementById('btnGenRandom');
-    const count = getRandomGenerationCount();
-    if (count === null) return;
-    const originalText = btn.innerText;
-
-    // 如果还没有 Plan，先静默请求一个 Plan
-    if (!currentPlan) {
-        btn.innerText = "🎲 Planning & Generating...";
-        btn.disabled = true;
-        try {
-            const res = await fetch('/infographic/plan', {
-                method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    description: document.getElementById('tableDesc').value,
-                    query: document.getElementById('queryInput').value,
-                    analysis_result: currentAnalysisAnswer,
-                    chart_source: currentChartData
-                })
-            });
-            const data = await res.json();
-            if(data.status === 'success') {
-                currentPlan = data.plan;
-            } else {
-                alert(data.error);
-                btn.innerText = originalText;
-                btn.disabled = false;
-                return;
-            }
-        } catch(e) { alert("Plan Error: " + e); btn.innerText = originalText; btn.disabled = false; return; }
-    }
-
-    // 调用随机生成接口
-    btn.innerText = `🎲 Generating ${count} Posters...`;
-    btn.disabled = true;
-
-    try {
-        const res = await fetch('/infographic/generate_random', {
-            method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                count: count,
-                plan: currentPlan,
-                chart_source: currentChartData,
-                description: document.getElementById('tableDesc').value,
-                query: document.getElementById('queryInput').value,
-                analysis_result: currentAnalysisAnswer
-            })
-        });
-        const data = await res.json();
-
-        if(data.status === 'success') {
-            galleryData = []; // 清空之前的画廊
-            for (let i = data.results.length - 1; i >= 0; i--) {
-                const item = data.results[i];
-                // [修复]: 每次循环利用 i 作为偏移量，确保 Date.now() 不重复
-                const uniqueId = Date.now() + i;
-
-                const newEntry = {
-                    id: uniqueId,
-                    imgUrl: item.image_url,
-                    selections: JSON.parse(JSON.stringify(item.selections)),
-                    assetUrl: null
-                };
-                galleryData.unshift(newEntry);
-            }
-            activeGalleryIndex = 0;
-            renderGalleryUI();
-
-            switchTab(3);
-
-            btn.innerText = "Done!";
-            setTimeout(() => {
-                btn.innerText = originalText;
-                btn.disabled = false;
-            }, 2000);
-        } else {
-            alert(data.error);
-            btn.innerText = "Retry";
-            btn.disabled = false;
-        }
-    } catch(e) {
-        alert("Random Gen Error: " + e);
-        btn.innerText = "Error";
-        btn.disabled = false;
-    }
-});
-
-// 2. 渲染右侧面板的向导步骤
-function renderWizardStep() {
-    const container = document.getElementById('tab-design');
-    container.innerHTML = '';
-    
-    // 定义步骤
-    const steps = [
-        { id: 'bottom', title: '1. Background & Mood', data: currentPlan.element_pool.bottom_layer },
-        { id: 'middle', title: '2. Chart Style', data: currentPlan.element_pool.middle_layer },
-        { id: 'top', title: '3. Narrative Text', data: currentPlan.element_pool.top_layer.filter(i => i.id !== 'visual_assets') },
-        { id: 'assets', title: '4. Visual Elements', data: currentPlan.element_pool.top_layer.find(i => i.id === 'visual_assets') }
-    ];
-
-    const currentStepConfig = steps[wizardStep];
-
-    let html = `<div class="wizard-step-title">${currentStepConfig.title}</div>`;
-    html += `<div class="wizard-options-grid">`;
-
-    if (wizardStep === 3) {
-        // 第4步：素材选择 (保持不变)
-        html += renderAssetStep(currentStepConfig.data);
-    } else {
-        // 其他步骤
-        currentStepConfig.data.forEach(group => {
-            html += `<div style="font-size:10px; font-weight:bold; color:#888; margin-top:5px;">${group.name}</div>`;
-            const options = group.id === 'color_scheme'
-                ? buildColorSchemeOptions(group.options)
-                : group.options;
-
-            if (group.id === 'color_scheme' && hasSelection(group.id)) {
-                const validValues = options.map(opt => opt.label || opt.name || opt);
-                if (!validValues.includes(designSelections[group.id])) {
-                    delete designSelections[group.id];
-                    delete designSelectionMeta[group.id];
-                }
-            }
-
-            options.forEach((opt, idx) => {
-                // [核心修改]：提取展示用的中文文本作为最终保存的 Value
-                const label = opt.label || opt.name || opt;
-                // 如果需要向后端传特定的 key 但显示 label，这里我们统一使用 label
-                const valToSave = label;
-
-                const contentText = opt.content || opt.text || "";
-
-                // 判断是否选中，直接用中文文本比较
-                const isSelected = isOptionSelected(group.id, valToSave) || (idx === 0 && !hasSelection(group.id));
-                if(isSelected && !hasSelection(group.id)) saveSelection(group.id, valToSave);
-                const encodedVal = encodeURIComponent(String(valToSave));
-
-                html += `
-                <div class="wizard-card ${isSelected ? 'selected' : ''}" onclick="selectOption('${group.id}', '${encodedVal}')">
-                    <strong>${label}</strong>
-                    <span>${opt.desc || opt.description || ''}</span>
-                    
-                    ${contentText ? `<div class="wizard-content-preview">${contentText}</div>` : ''}
-                </div>`;
-            });
-        });
-    }
-    html += `</div>`;
-
-    html += `<div class="wizard-nav">`;
-    if (wizardStep > 0) html += `<button onclick="prevStep()">Back</button>`;
-    if (wizardStep < steps.length - 1) html += `<button class="primary-btn" onclick="nextStep()">Next</button>`;
-    else html += `<button class="primary-btn" onclick="generateFinalPoster()">🚀 Generate</button>`;
-    html += `</div>`;
-
-    container.innerHTML = html;
-    if (wizardStep === 3) loadVisualAssets(currentStepConfig.data);
-}
-
-// 辅助：选择逻辑
-function hasSelection(groupId) { return designSelections[groupId] !== undefined; }
-function isOptionSelected(groupId, val) { return designSelections[groupId] === val; }
-
-function applySelection(groupId, val) {
-    designSelections[groupId] = val;
-
-    if (groupId === 'color_scheme') {
-        if (paletteOptionMetaByLabel[val]) {
-            designSelectionMeta[groupId] = JSON.parse(JSON.stringify(paletteOptionMetaByLabel[val]));
-        } else {
-            delete designSelectionMeta[groupId];
-        }
-    }
-}
-
-window.selectOption = function(groupId, encodedVal) {
-    const val = decodeURIComponent(encodedVal || '');
-    applySelection(groupId, val);
-    renderWizardStep();
-};
-
-window.toggleAsset = function(keywords) {
-    // 检查当前是否已经选中了这个素材
-    if(designSelections['visual_assets'] && designSelections['visual_assets'].keywords === keywords) {
-        delete designSelections['visual_assets'];
-    } else {
-        // 从 currentPlan 中找到该素材的完整对象数据
-        const assetGroup = currentPlan.element_pool.top_layer.find(i => i.id === 'visual_assets');
-        const fullObj = assetGroup.options.find(o => o.keywords === keywords);
-        // 保存完整对象，而不仅是字符串
-        designSelections['visual_assets'] = fullObj;
-    }
-    renderWizardStep();
-}
-
-// 导航函数
-window.nextStep = function() { wizardStep++; renderWizardStep(); }
-window.prevStep = function() { wizardStep--; renderWizardStep(); }
-window.saveSelection = function(groupId, val) { applySelection(groupId, val); }
-
-// 3. 素材步骤专用：渲染 + 异步生成
-function renderAssetStep(assetGroup) {
-    if(!assetGroup) return "<div>No visual assets suggested.</div>";
-
-    let html = `<div class="asset-grid">`;
-
-    assetGroup.options.forEach((opt, idx) => {
-        const keywords = opt.keywords;
-        // [修改]：对比时需要取 .keywords 属性
-        const isSelected = designSelections['visual_assets'] && designSelections['visual_assets'].keywords === keywords;
-        const imgUrl = generatedAssets[keywords];
-
-        html += `
-        <div class="asset-card ${isSelected ? 'selected' : ''}" onclick="toggleAsset('${keywords}')">
-            ${imgUrl 
-                ? `<img src="${imgUrl}">` 
-                : `<div class="asset-loader" id="loader-${idx}">Generating...</div>`
-            }
-            <div class="asset-card-label">${opt.category}</div>
-        </div>
-        `;
-    });
-    html += `</div>`;
-    return html;
-}
-
-// 异步生成素材并更新 DOM
-async function loadVisualAssets(assetGroup) {
-    if(!assetGroup) return;
-
-    const styleDesc = "flat vector icon, minimal, clean white background, high quality";
-
-    for (let i = 0; i < assetGroup.options.length; i++) {
-        const opt = assetGroup.options[i];
-        if (generatedAssets[opt.keywords]) continue;
-
-        try {
-            const res = await fetch('/infographic/generate_asset', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ keywords: opt.keywords, style: styleDesc })
-            });
-            const data = await res.json();
-            if(data.status === 'success') {
-                generatedAssets[opt.keywords] = data.asset_url;
-                const loader = document.getElementById(`loader-${i}`);
-                if(loader) {
-                    loader.parentNode.innerHTML = `
-                        <img src="${data.asset_url}">
-                        <div class="asset-card-label">${opt.category}</div>
-                    `;
-                }
-            }
-        } catch(e) { console.error("Asset gen error", e); }
-    }
-}
-
-// 4. 生成最终海报并添加到画廊
-window.generateFinalPoster = async function() {
-    const btn = document.querySelector('.wizard-nav .primary-btn');
-    btn.innerText = "Processing...";
-    btn.disabled = true;
-
-    const finalSelections = {
-        bottom_layer: {},
-        middle_layer: {},
-        top_layer: {}
-    };
-
-    // 收集选项
-    currentPlan.element_pool.bottom_layer.forEach(g => { if(designSelections[g.id]) finalSelections.bottom_layer[g.id] = designSelections[g.id]; });
-    currentPlan.element_pool.middle_layer.forEach(g => {
-        if(!designSelections[g.id]) return;
-
-        if (g.id === 'color_scheme' && designSelectionMeta[g.id]) {
-            finalSelections.middle_layer[g.id] = JSON.parse(JSON.stringify(designSelectionMeta[g.id]));
-        } else {
-            finalSelections.middle_layer[g.id] = designSelections[g.id];
-        }
-    });
-
-    // [修改]：不再排除 'visual_assets'，直接将其文本存入 top_layer 发送给后端
-    currentPlan.element_pool.top_layer.forEach(g => {
-        if(designSelections[g.id]) finalSelections.top_layer[g.id] = designSelections[g.id];
-    });
-
-    // [修改]：保留本地的素材图片URL，用于在前端显示(不发给后端)
-    const localAssetUrl = designSelections['visual_assets'] ? generatedAssets[designSelections['visual_assets'].keywords] : null;
-    try {
-        const res = await fetch('/infographic/generate_final', {
-            method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                selections: finalSelections, // 现在这里面包含了 visual_assets 的文字名称
-                chart_source: currentChartData,
-                description: document.getElementById('tableDesc').value,
-                query: document.getElementById('queryInput').value,
-                analysis_result: currentAnalysisAnswer
-                // [修改]：删除了 asset_urls 字段
-            })
-        });
-        const data = await res.json();
-
-        if(data.status === 'success') {
-            addToGallery(data.image_url, finalSelections, localAssetUrl);
-            btn.innerText = "Done!";
-            setTimeout(() => {
-                btn.innerText = "Generate Variant";
-                btn.disabled = false;
-            }, 2000);
-        } else {
-            alert(data.error);
-            btn.innerText = "Retry";
-            btn.disabled = false;
-        }
-    } catch(e) {
-        alert(e);
-        btn.innerText = "Error";
-        btn.disabled = false;
-    }
-};
-
-// 5. 将结果添加到画廊
-// [修改]：增加 assetUrl 参数
-function addToGallery(imgUrl, usedSelections, assetUrl) {
-    const newEntry = {
-        id: Date.now(),
-        imgUrl: imgUrl,
-        selections: JSON.parse(JSON.stringify(usedSelections)),
-        assetUrl: assetUrl // 前端绑定的图片URL，仅作展示
-    };
-
-    galleryData.unshift(newEntry);
-    activeGalleryIndex = 0;
-    renderGalleryUI();
-}
-
-// -------------------------------------------------------------
-// [修改] 渲染画廊 UI - 增加中英文对照字典与翻译逻辑
-// -------------------------------------------------------------
-function renderGalleryUI() {
-    const tabsContainer = document.getElementById('galleryTabs');
-    const viewContainer = document.getElementById('galleryView');
-
-    if (galleryData.length === 0) {
-        viewContainer.innerHTML = '<div class="center-msg">生成的图表海报将显示在这里</div>';
-        tabsContainer.innerHTML = '';
+    const container = document.getElementById("tab-schema");
+    if (!meta || !Array.isArray(meta.columns)) {
+        container.innerHTML = '<div class="center-msg">No Data</div>';
         return;
     }
 
-    // [核心修改]：极简字典，仅翻译系统固定字段 Key，不涉及 Value
-    const keyDict = {
-        'bottom_layer': '🎨 底层 (背景与氛围)',
-        'middle_layer': '📊 中层 (数据与图表)',
-        'top_layer': '✨ 顶层 (叙事与元素)',
-        'bg_style': '背景风格',
-        'grid_style': '网格风格',
-        'axis_style': '坐标轴',
-        'chart_type': '图表类型',
-        'color_scheme': '配色方案',
-        'highlight_insight': '核心洞察',
-        'annotation_text': '文本注释',
-        'visual_assets': '视觉元素'
-    };
-    const t = (key) => keyDict[key] || key;
-
-    // 渲染 Tabs (代码不变)
-    let tabsHtml = '';
-    galleryData.forEach((item, index) => {
-        tabsHtml += `<div class="gallery-tab ${index === activeGalleryIndex ? 'active' : ''}" onclick="switchGalleryTab(${index})">方案 ${galleryData.length - index}</div>`;
+    let html = `<div style="font-size:10px; color:#999; margin-bottom:15px;">${meta.rows} ROWS FOUND</div>`;
+    meta.columns.forEach((col) => {
+        html += `
+        <div style="margin-bottom:8px; border-bottom:1px solid #eee; padding-bottom:8px; display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-family:'JetBrains Mono'; font-size:11px; font-weight:600;">${col}</span>
+            <span class="schema-type">STR/NUM</span>
+        </div>`;
     });
-    tabsContainer.innerHTML = tabsHtml;
 
-    // 渲染内容区域
-    const activeItem = galleryData[activeGalleryIndex];
-    const selections = activeItem.selections;
+    container.innerHTML = html;
+}
 
-    let layersHtml = '';
-    const layerOrder = ['bottom_layer', 'middle_layer', 'top_layer'];
+function getNodeById(nodeId) {
+    return graphNodeMap[nodeId] || null;
+}
 
-    layerOrder.forEach(layerKey => {
-        const layerData = selections[layerKey] || {};
-        if (Object.keys(layerData).length > 0) {
-            layersHtml += `<div style="margin-bottom: 12px;">`;
-            // 渲染层级标题 (如：🎨 底层)
-            layersHtml += `<div style="font-size: 11px; font-weight: bold; color: var(--primary); margin-bottom: 5px; border-bottom: 1px solid #eee; padding-bottom: 3px;">${t(layerKey)}</div>`;
+function isNodeSelected(nodeId) {
+    return selectedNodes.some((n) => n.id === nodeId);
+}
 
-            // 渲染该层级下的所有选项
-            for (const [key, val] of Object.entries(layerData)) {
+function clearPaletteSelectionState() {
+    selectedColorNodeId = "";
+    selectedPaletteMeta = null;
+    extractedPaletteResults = [];
+    currentRefImagePath = "";
 
-                // [新增]：如果 val 是对象 (例如 visual_assets)，提取其 keywords 或 label 显示
-                let displayVal = val;
-                if (typeof val === 'object' && val !== null) {
-                    displayVal = val.keywords || val.label || val.name || JSON.stringify(val);
-                }
+    const hint = document.getElementById("paletteNodeHint");
+    if (hint) hint.textContent = "No color scheme node selected";
 
-                if (key === 'visual_assets' && activeItem.assetUrl) {
-                    layersHtml += `
-                        <div class="info-row" style="display:flex; align-items:center; gap:8px;">
-                            <img src="${activeItem.assetUrl}" style="width:24px; height:24px; border-radius:3px; border:1px solid #ddd; background:#f9f9f9;" alt="asset">
-                            <div>
-                                <div class="info-label">${t(key)}</div>
-                                <div class="info-val" style="color: #10b981; font-weight:bold;">${displayVal}</div>
-                            </div>
-                        </div>`;
-                } else {
-                    layersHtml += `
-                        <div class="info-row">
-                            <div class="info-label">${t(key)}</div>
-                            <div class="info-val">${displayVal}</div> 
-                        </div>`;
-                }
-            }
-            layersHtml += `</div>`;
+    const promptPreview = document.getElementById("palettePromptPreview");
+    if (promptPreview) promptPreview.value = "";
+
+    const refPlaceholder = document.getElementById("refPlaceholder");
+    if (refPlaceholder) {
+        refPlaceholder.style.display = "flex";
+        refPlaceholder.textContent = "No palette reference image";
+    }
+
+    const canvasContainer = document.getElementById("canvasContainer");
+    if (canvasContainer) canvasContainer.style.display = "none";
+
+    const interactionLayer = document.getElementById("interactionLayer");
+    if (interactionLayer) interactionLayer.innerHTML = "";
+
+    const generateBtn = document.getElementById("btnGeneratePaletteFromNode");
+    if (generateBtn) generateBtn.disabled = true;
+
+    renderPaletteOptions([]);
+}
+
+function removeSelectedNodeById(nodeId) {
+    const index = selectedNodes.findIndex((n) => n.id === nodeId);
+    if (index >= 0) {
+        const removed = selectedNodes[index];
+        selectedNodes.splice(index, 1);
+        if (removed.group_id === "color_scheme" && selectedColorNodeId === removed.id) {
+            clearPaletteSelectionState();
         }
+    }
+}
+
+function toggleForceNodeSelection(node) {
+    if (!node || layerOrder[forceStep] !== node.layer) return;
+
+    const existed = isNodeSelected(node.id);
+    if (existed) {
+        removeSelectedNodeById(node.id);
+        renderForceStep();
+        renderDesignSummary();
+        return;
+    }
+
+    const sameGroupNode = selectedNodes.find((n) => n.layer === node.layer && n.group_id === node.group_id);
+    if (sameGroupNode) {
+        removeSelectedNodeById(sameGroupNode.id);
+    }
+
+    selectedNodes.push(node);
+
+    if (node.group_id === "color_scheme") {
+        selectedColorNodeId = node.id;
+        selectedPaletteMeta = null;
+        const generateBtn = document.getElementById("btnGeneratePaletteFromNode");
+        if (generateBtn) generateBtn.disabled = false;
+        const hint = document.getElementById("paletteNodeHint");
+        if (hint) {
+            const desc = node.desc ? ` | ${node.desc}` : "";
+            hint.textContent = `${node.name}${desc}`;
+        }
+        generatePaletteFromSelectedColorNode({ reuseImage: false });
+    }
+
+    renderForceStep();
+    renderDesignSummary();
+}
+
+function getSourceId(link) {
+    return typeof link.source === "object" ? link.source.id : link.source;
+}
+
+function getTargetId(link) {
+    return typeof link.target === "object" ? link.target.id : link.target;
+}
+
+function computeActiveGraphData() {
+    if (!fullGraphData) return { nodes: [], links: [] };
+
+    let activeNodes = [...selectedNodes];
+    let candidateNodes = [];
+
+    if (forceStep < layerOrder.length) {
+        const currentLayer = layerOrder[forceStep];
+        candidateNodes = fullGraphData.nodes.filter((n) => n.layer === currentLayer);
+
+        if (forceStep > 0) {
+            const pastSelectedIds = new Set(
+                selectedNodes
+                    .filter((n) => layerOrder.indexOf(n.layer) < forceStep)
+                    .map((n) => n.id)
+            );
+
+            const validIds = new Set();
+            fullGraphData.links.forEach((link) => {
+                if (link.is_intra) return;
+                const sId = getSourceId(link);
+                const tId = getTargetId(link);
+                if (pastSelectedIds.has(sId)) validIds.add(tId);
+                if (pastSelectedIds.has(tId)) validIds.add(sId);
+            });
+
+            const filtered = candidateNodes.filter((n) => validIds.has(n.id));
+            if (filtered.length > 0) candidateNodes = filtered;
+        }
+
+        candidateNodes.forEach((n) => {
+            if (!activeNodes.some((s) => s.id === n.id)) activeNodes.push(n);
+        });
+    }
+
+    const activeNodeIds = new Set(activeNodes.map((n) => n.id));
+
+    const activeLinks = fullGraphData.links.filter((link) => {
+        const sId = getSourceId(link);
+        const tId = getTargetId(link);
+        if (!activeNodeIds.has(sId) || !activeNodeIds.has(tId)) return false;
+        if (link.is_intra) return true;
+
+        const sourceSelected = selectedNodes.some((n) => n.id === sId);
+        const targetSelected = selectedNodes.some((n) => n.id === tId);
+        return sourceSelected || targetSelected;
+    });
+
+    return { nodes: activeNodes, links: activeLinks };
+}
+
+function renderForceGraph(nodes, links) {
+    const container = document.getElementById("forceGraphContainer");
+    if (!container) return;
+
+    container.innerHTML = "";
+
+    if (typeof d3 === "undefined") {
+        container.innerHTML = '<div class="center-msg">D3 failed to load. Upload/analysis still works.</div>';
+        return;
+    }
+
+    if (!nodes.length) {
+        container.innerHTML = '<div class="center-msg">No nodes available for current step</div>';
+        return;
+    }
+
+    const rect = container.getBoundingClientRect();
+    const width = Math.max(600, Math.floor(rect.width));
+    const height = Math.max(240, Math.floor(rect.height));
+
+    const svg = d3.select(container)
+        .append("svg")
+        .attr("width", width)
+        .attr("height", height);
+
+    const root = svg.append("g");
+    svg.call(d3.zoom().on("zoom", (event) => root.attr("transform", event.transform)));
+
+    const linkSel = root.append("g")
+        .selectAll("line")
+        .data(links, (d) => `${getSourceId(d)}-${getTargetId(d)}`)
+        .join("line")
+        .attr("stroke", (d) => (d.is_intra ? "transparent" : "#b9c1cc"))
+        .attr("stroke-opacity", (d) => (d.is_intra ? 0 : 0.65))
+        .attr("stroke-width", (d) => (d.is_intra ? 0 : Math.max(1, Number(d.jaccard || 0) * 10)));
+
+    const nodeSel = root.append("g")
+        .selectAll("g")
+        .data(nodes, (d) => d.id)
+        .join((enter) => {
+            const g = enter.append("g").style("cursor", "pointer");
+            g.append("circle");
+            g.append("text");
+            return g;
+        })
+        .on("click", (event, d) => {
+            event.stopPropagation();
+            hideForceNodeTooltip();
+            toggleForceNodeSelection(d);
+        })
+        .on("mouseover", (event, d) => {
+            showForceNodeTooltip(event, d);
+        })
+        .on("mousemove", (event) => {
+            moveForceNodeTooltip(event);
+        })
+        .on("mouseout", () => {
+            hideForceNodeTooltip();
+        });
+
+    nodeSel.select("circle")
+        .attr("r", (d) => Math.sqrt(Number(d.val || 1)) * 2.4 + 11)
+        .attr("fill", (d) => colorForGroup(d.group_id || d.group || "unknown"))
+        .attr("stroke", (d) => (isNodeSelected(d.id) ? "#ef4444" : "#ffffff"))
+        .attr("stroke-width", (d) => (isNodeSelected(d.id) ? 4 : 2.5))
+        .attr("opacity", (d) => {
+            if (forceStep >= layerOrder.length) return isNodeSelected(d.id) ? 1 : 0.75;
+            if (d.layer !== layerOrder[forceStep]) return 0.95;
+            return isNodeSelected(d.id) ? 1 : 0.68;
+        });
+
+    nodeSel.select("text")
+        .text((d) => d.name)
+        .attr("y", (d) => Math.sqrt(Number(d.val || 1)) * 2.4 + 24)
+        .attr("text-anchor", "middle")
+        .style("font-size", "11px")
+        .style("font-weight", 600)
+        .style("fill", "#1f2937")
+        .style("pointer-events", "none");
+
+    const simulation = d3.forceSimulation(nodes)
+        .force("link", d3.forceLink(links)
+            .id((d) => d.id)
+            .distance((d) => (d.is_intra ? Math.max(35, 55 - Number(d.jaccard || 0) * 35) : 190))
+            .strength((d) => (d.is_intra ? Math.max(0.1, Number(d.jaccard || 0) * 1.8) : Math.max(0.03, Number(d.jaccard || 0) * 0.7))))
+        .force("charge", d3.forceManyBody().strength(-420))
+        .force("x", d3.forceX((d) => {
+            const idx = layerOrder.indexOf(d.layer);
+            return (idx + 1) * (width / 4);
+        }).strength(0.8))
+        .force("y", d3.forceY(height / 2).strength(0.1))
+        .force("collide", d3.forceCollide().radius((d) => Math.sqrt(Number(d.val || 1)) * 2.4 + 22));
+
+    nodeSel.call(
+        d3.drag()
+            .on("start", (event, d) => {
+                if (!event.active) simulation.alphaTarget(0.3).restart();
+                d.fx = d.x;
+                d.fy = d.y;
+            })
+            .on("drag", (event, d) => {
+                d.fx = event.x;
+                d.fy = event.y;
+            })
+            .on("end", (event, d) => {
+                if (!event.active) simulation.alphaTarget(0);
+                d.fx = null;
+                d.fy = null;
+            })
+    );
+
+    simulation.on("tick", () => {
+        linkSel
+            .attr("x1", (d) => d.source.x)
+            .attr("y1", (d) => d.source.y)
+            .attr("x2", (d) => d.target.x)
+            .attr("y2", (d) => d.target.y);
+
+        nodeSel.attr("transform", (d) => `translate(${d.x},${d.y})`);
+    });
+}
+
+function updateForceStepUI() {
+    const chips = document.querySelectorAll(".force-step-chip");
+    chips.forEach((chip, index) => {
+        chip.classList.remove("active", "done");
+        if (index < forceStep) chip.classList.add("done");
+        else if (index === forceStep) chip.classList.add("active");
+    });
+
+    const btnNext = document.getElementById("btnForceNext");
+    const btnGenerate = document.getElementById("btnForceGenerate");
+
+    if (forceStep >= layerOrder.length) {
+        if (btnNext) btnNext.style.display = "none";
+        if (btnGenerate) btnGenerate.style.display = "inline-block";
+    } else {
+        if (btnNext) btnNext.style.display = "inline-block";
+        if (btnGenerate) btnGenerate.style.display = "none";
+    }
+}
+
+function renderForceStep() {
+    updateForceStepUI();
+    const data = computeActiveGraphData();
+    renderForceGraph(data.nodes, data.links);
+}
+
+function initForceExplorer() {
+    forceStep = 0;
+    selectedNodes = [];
+    clearPaletteSelectionState();
+    renderForceStep();
+    renderDesignSummary();
+}
+
+function nextForceStep() {
+    if (forceStep >= layerOrder.length) return;
+
+    const currentLayer = layerOrder[forceStep];
+    const count = selectedNodes.filter((n) => n.layer === currentLayer).length;
+    if (count === 0) {
+        alert("Please select at least one node in the current layer.");
+        return;
+    }
+
+    forceStep += 1;
+    renderForceStep();
+    renderDesignSummary();
+}
+
+function resetForceFlow() {
+    if (!fullGraphData) return;
+    initForceExplorer();
+}
+
+function buildSelectionMaps() {
+    const selectedByLayerGroup = {
+        bottom_layer: {},
+        middle_layer: {},
+        top_layer: {},
+    };
+
+    selectedNodes.forEach((node) => {
+        if (!selectedByLayerGroup[node.layer]) return;
+        selectedByLayerGroup[node.layer][node.group_id] = node;
+    });
+
+    Object.entries(groupDefaults || {}).forEach(([layer, groupMap]) => {
+        if (!selectedByLayerGroup[layer] || !groupMap || typeof groupMap !== "object") return;
+        Object.entries(groupMap).forEach(([groupId, nodeId]) => {
+            if (selectedByLayerGroup[layer][groupId]) return;
+            const fallbackNode = getNodeById(nodeId);
+            if (fallbackNode) selectedByLayerGroup[layer][groupId] = fallbackNode;
+        });
+    });
+
+    return selectedByLayerGroup;
+}
+
+function buildFinalSelectionsFromGraph() {
+    const selectedByLayerGroup = buildSelectionMaps();
+    const finalSelections = {
+        bottom_layer: {},
+        middle_layer: {},
+        top_layer: {},
+    };
+
+    layerOrder.forEach((layer) => {
+        Object.entries(selectedByLayerGroup[layer] || {}).forEach(([groupId, node]) => {
+            if (!node) return;
+
+            if (groupId === "visual_assets") {
+                if (node.option_payload && typeof node.option_payload === "object") {
+                    finalSelections[layer][groupId] = JSON.parse(JSON.stringify(node.option_payload));
+                } else {
+                    finalSelections[layer][groupId] = {
+                        category: node.group || "Visual Asset",
+                        suggestion: node.name,
+                        keywords: node.name,
+                    };
+                }
+                return;
+            }
+
+            if (groupId === "color_scheme" && selectedPaletteMeta) {
+                finalSelections[layer][groupId] = {
+                    type: selectedPaletteMeta.type,
+                    label: selectedPaletteMeta.label,
+                    source_label: selectedPaletteMeta.source_label,
+                    palette: selectedPaletteMeta.palette,
+                    harmony_score: selectedPaletteMeta.harmony_score,
+                };
+                return;
+            }
+
+            finalSelections[layer][groupId] = node.name;
+        });
+    });
+
+    return finalSelections;
+}
+
+function renderDesignSummary() {
+    const container = document.getElementById("designSelectionSummary");
+    if (!container) return;
+
+    if (!fullGraphData) {
+        container.innerHTML = "Build force graph and select nodes first";
+        return;
+    }
+
+    const selectionMap = buildSelectionMaps();
+
+    const layerLabel = {
+        bottom_layer: "Bottom Layer",
+        middle_layer: "Middle Layer",
+        top_layer: "Top Layer",
+    };
+
+    let html = "";
+    layerOrder.forEach((layer) => {
+        const groups = selectionMap[layer] || {};
+        html += `<div class="data-row"><div class="data-label">${layerLabel[layer]}</div>`;
+
+        if (Object.keys(groups).length === 0) {
+            html += `<div class="data-value">No selection</div></div>`;
+            return;
+        }
+
+        Object.values(groups).forEach((node) => {
+            html += `<div class="data-value" style="margin-bottom:4px;">${node.group}: <b>${node.name}</b></div>`;
+        });
+        html += `</div>`;
+    });
+
+    if (selectedPaletteMeta && Array.isArray(selectedPaletteMeta.palette)) {
+        const hexText = selectedPaletteMeta.palette
+            .slice(0, 5)
+            .map(toHexColor)
+            .filter(Boolean)
+            .join(" / ");
+        html += `
+        <div class="data-row">
+            <div class="data-label">Selected Extracted Palette</div>
+            <div class="data-value">${selectedPaletteMeta.label || "Palette"}</div>
+            <div class="data-value" style="color:#059669;">${hexText || "N/A"}</div>
+        </div>`;
+    }
+
+    container.innerHTML = html;
+}
+
+async function generateFinalPosterFromForceGraph() {
+    if (!fullGraphData) {
+        alert("Build force graph first.");
+        return;
+    }
+
+    const btn = document.getElementById("btnForceGenerate");
+    const originalText = btn ? btn.innerText : "Generate Infographic";
+    if (btn) {
+        btn.innerText = "Generating...";
+        btn.disabled = true;
+    }
+
+    try {
+        const finalSelections = buildFinalSelectionsFromGraph();
+
+        const res = await fetch("/infographic/generate_final", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                selections: finalSelections,
+                chart_source: currentChartData,
+                description: document.getElementById("tableDesc").value,
+                query: document.getElementById("queryInput").value,
+                analysis_result: currentAnalysisAnswer,
+            }),
+        });
+        const data = await res.json();
+
+        if (data.status === "success") {
+            addToGallery(data.image_url, finalSelections);
+            switchTab(3);
+            if (btn) btn.innerText = "Done";
+        } else {
+            alert(data.error || "Final generation failed");
+            if (btn) btn.innerText = "Retry";
+        }
+    } catch (e) {
+        alert("Final generation error: " + e);
+        if (btn) btn.innerText = "Error";
+    } finally {
+        if (btn) {
+            setTimeout(() => {
+                btn.innerText = originalText;
+                btn.disabled = false;
+            }, 1200);
+        }
+    }
+}
+
+function renderGalleryUI() {
+    const tabsContainer = document.getElementById("galleryTabs");
+    const viewContainer = document.getElementById("galleryView");
+
+    if (!tabsContainer || !viewContainer) return;
+
+    if (galleryData.length === 0) {
+        tabsContainer.innerHTML = "";
+        viewContainer.innerHTML = '<div class="center-msg">Generated infographics will appear here</div>';
+        return;
+    }
+
+    tabsContainer.innerHTML = galleryData
+        .map((item, index) => `<div class="gallery-tab ${index === activeGalleryIndex ? "active" : ""}" onclick="switchGalleryTab(${index})">Scheme ${galleryData.length - index}</div>`)
+        .join("");
+
+    const activeItem = galleryData[activeGalleryIndex];
+    const selections = activeItem.selections || {};
+
+    const layerTitleMap = {
+        bottom_layer: "Bottom Layer",
+        middle_layer: "Middle Layer",
+        top_layer: "Top Layer",
+    };
+
+    let selectionHtml = "";
+    layerOrder.forEach((layer) => {
+        const layerData = selections[layer] || {};
+        if (!Object.keys(layerData).length) return;
+
+        selectionHtml += `<div style="margin-bottom:10px;"><div style="font-size:11px; color:var(--primary); font-weight:700; margin-bottom:4px;">${layerTitleMap[layer]}</div>`;
+        Object.entries(layerData).forEach(([key, value]) => {
+            let displayValue = value;
+            if (typeof value === "object" && value !== null) {
+                displayValue = value.label || value.keywords || value.name || JSON.stringify(value);
+            }
+            selectionHtml += `<div class="info-row"><div class="info-label">${key}</div><div class="info-val">${displayValue}</div></div>`;
+        });
+        selectionHtml += `</div>`;
     });
 
     viewContainer.innerHTML = `
         <div class="gallery-item">
-            <div class="gallery-img-container">
-                <img src="${activeItem.imgUrl}" class="gallery-img">
-            </div>
+            <div class="gallery-img-container"><img src="${activeItem.imgUrl}" class="gallery-img" alt="poster"></div>
             <div class="gallery-info">
-                <h4>🗂️ 设计结构解析</h4>
-                ${layersHtml}
-                <div style="margin-top:auto; padding-top:10px;">
-                    <a href="${activeItem.imgUrl}" download="infographic_${activeItem.id}.png" class="primary-btn" style="display:block; text-align:center; text-decoration:none; padding:8px;">
-                        ⬇ 下载海报
-                    </a>
+                <h4>Design Selections</h4>
+                ${selectionHtml || '<div class="center-msg">No selection details</div>'}
+                <div style="margin-top:12px;">
+                    <a href="${activeItem.imgUrl}" download="infographic_${activeItem.id}.png" class="primary-btn" style="display:block; text-align:center; text-decoration:none; padding:8px;">Download</a>
                 </div>
             </div>
         </div>
     `;
 }
 
-// 切换标签的函数
-window.switchGalleryTab = function(index) {
-    activeGalleryIndex = index;
+function addToGallery(imgUrl, usedSelections) {
+    galleryData.unshift({
+        id: Date.now(),
+        imgUrl,
+        selections: JSON.parse(JSON.stringify(usedSelections || {})),
+    });
+    activeGalleryIndex = 0;
     renderGalleryUI();
 }
 
-// ================= 步骤 4 & 5 (Reference & Palette) 保持不变 =================
-async function handleRefResponse(res) {
-    const data = await res.json();
-    if(data.status === 'success') {
-        currentRefImagePath = data.image_path;
-        extractedPaletteResults = [];
-        delete designSelectionMeta['color_scheme'];
-        delete designSelections['color_scheme'];
-        await renderRefImage(currentRefImagePath);
-        document.getElementById('btnExtract').disabled = false;
-    } else { alert(data.error); }
+window.switchGalleryTab = function(index) {
+    activeGalleryIndex = index;
+    renderGalleryUI();
+};
+
+async function renderRefImage(url) {
+    const mainImage = document.getElementById("mainImage");
+    const svgLayer = document.getElementById("interactionLayer");
+    const canvasContainer = document.getElementById("canvasContainer");
+    const refPlaceholder = document.getElementById("refPlaceholder");
+
+    if (!mainImage || !svgLayer || !canvasContainer || !refPlaceholder) return;
+
+    canvasContainer.style.display = "inline-block";
+    refPlaceholder.style.display = "none";
+    svgLayer.innerHTML = "";
+
+    return new Promise((resolve) => {
+        mainImage.onload = () => {
+            svgLayer.setAttribute("viewBox", `0 0 ${mainImage.naturalWidth} ${mainImage.naturalHeight}`);
+            resolve();
+        };
+        mainImage.src = `${url}?t=${Date.now()}`;
+    });
 }
 
-document.getElementById('btnRefGen').addEventListener('click', async () => {
-    const prompt = document.getElementById('refPrompt').value;
-    if(!prompt) return;
-    toggleLoading('loading-ref', true);
-    try {
-        const res = await fetch('/generate_ref_image', {
-            method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ prompt, aspect_ratio: document.getElementById('aspectRatio').value })
+function renderMasks(items) {
+    const svgLayer = document.getElementById("interactionLayer");
+    if (!svgLayer) return;
+
+    svgLayer.innerHTML = "";
+    (items || []).forEach((item, idx) => {
+        if (!Array.isArray(item.polygons) || !item.polygons.length) return;
+
+        const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        item.polygons.forEach((poly) => {
+            const polygon = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+            polygon.setAttribute("points", poly.map((p) => p.join(",")).join(" "));
+            polygon.setAttribute("class", "mask-poly");
+            group.appendChild(polygon);
         });
-        await handleRefResponse(res);
-    } catch(e) { alert(e); } finally { toggleLoading('loading-ref', false); }
-});
 
-document.getElementById('btnAutoPalettePrompt').addEventListener('click', async () => {
-    const btn = document.getElementById('btnAutoPalettePrompt');
-    const originalText = btn.innerText;
-    const desc = document.getElementById('tableDesc').value || "";
-    const query = document.getElementById('queryInput').value || "";
+        group.addEventListener("click", (event) => {
+            event.stopPropagation();
+            document.querySelectorAll(".mask-poly").forEach((el) => el.classList.remove("active"));
+            group.querySelectorAll(".mask-poly").forEach((el) => el.classList.add("active"));
+            window.selectExtractedPalette(idx);
+        });
 
-    if(!query) {
-        alert("Please run analysis query first.");
+        svgLayer.appendChild(group);
+    });
+}
+
+function renderPaletteOptions(items) {
+    const panel = document.getElementById("paletteOptionsPanel");
+    if (!panel) return;
+
+    if (!Array.isArray(items) || items.length === 0) {
+        panel.innerHTML = '<div class="center-msg">No extracted palettes</div>';
         return;
     }
 
-    btn.disabled = true;
-    btn.innerText = "Synthesizing...";
+    const cards = items.map((item, idx) => {
+        const swatches = (item.palette || [])
+            .map((c) => `<div class="color-swatch" style="background:${toHexColor(c) || '#ddd'}" title="${toHexColor(c) || ''}"></div>`)
+            .join("");
+
+        const selected = selectedPaletteMeta && selectedPaletteMeta._index === idx;
+        const harmony = typeof item.harmony_score === "number" ? item.harmony_score.toFixed(3) : "N/A";
+        return `
+        <div class="palette-option-card ${selected ? "selected" : ""}" onclick="selectExtractedPalette(${idx})">
+            <div class="palette-option-title">${item.label || `Object ${idx + 1}`} | Harmony ${harmony}</div>
+            <div class="palette-grid">${swatches || '<div class="center-msg">No colors</div>'}</div>
+        </div>`;
+    }).join("");
+
+    panel.innerHTML = cards;
+}
+
+window.selectExtractedPalette = function(index) {
+    const item = extractedPaletteResults[index];
+    if (!item || !Array.isArray(item.palette) || !item.palette.length) return;
+
+    const colorNode = getNodeById(selectedColorNodeId);
+    const nodeName = colorNode ? colorNode.name : "Node Palette";
+
+    selectedPaletteMeta = {
+        type: "palette",
+        label: `Palette-${nodeName}-${index + 1}`,
+        source_label: item.label || `object_${index + 1}`,
+        palette: item.palette,
+        harmony_score: item.harmony_score ?? null,
+        _index: index,
+    };
+
+    renderPaletteOptions(extractedPaletteResults);
+    renderDesignSummary();
+};
+
+async function generatePaletteFromSelectedColorNode(options = {}) {
+    const colorNode = getNodeById(selectedColorNodeId);
+    if (!colorNode) return;
+    const regionPromptInput = document.getElementById("regionPromptInput");
+    const userRegionPrompt = regionPromptInput ? regionPromptInput.value.trim() : "";
+    const shouldReuseImage = Boolean(options.reuseImage) && Boolean(currentRefImagePath);
+
+    toggleLoading("loading-palette-node", true);
 
     try {
-        const res = await fetch('/generate_palette_prompt', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+        const res = await fetch("/palette/from_color_node", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
+                description: document.getElementById("tableDesc").value,
+                query: document.getElementById("queryInput").value,
+                analysis_result: currentAnalysisAnswer,
+                chart_source: currentChartData,
+                node_label: colorNode.name,
+                node_desc: colorNode.desc || "",
+                user_region_prompt: userRegionPrompt,
+                reuse_image: shouldReuseImage,
+                current_image_path: currentRefImagePath,
+                aspect_ratio: "1:1",
+            }),
+        });
+        const data = await res.json();
+
+        if (data.status !== "success") {
+            alert(data.error || "Palette generation failed");
+            return;
+        }
+
+        currentRefImagePath = data.image_path || "";
+        extractedPaletteResults = (data.results || []).filter((r) => Array.isArray(r.palette) && r.palette.length > 0);
+
+        const promptPreview = document.getElementById("palettePromptPreview");
+        if (promptPreview) promptPreview.value = data.composed_prompt || "";
+
+        if (currentRefImagePath && !data.used_existing_image) {
+            await renderRefImage(currentRefImagePath);
+            if (data.full_image_mode) {
+                const interactionLayer = document.getElementById("interactionLayer");
+                if (interactionLayer) interactionLayer.innerHTML = "";
+            } else {
+                renderMasks(data.results || []);
+            }
+        } else if (data.used_existing_image) {
+            if (data.full_image_mode) {
+                const interactionLayer = document.getElementById("interactionLayer");
+                if (interactionLayer) interactionLayer.innerHTML = "";
+            } else {
+                renderMasks(data.results || []);
+            }
+        }
+
+        selectedPaletteMeta = null;
+        renderPaletteOptions(extractedPaletteResults);
+        renderDesignSummary();
+        switchTab(2);
+    } catch (e) {
+        alert("Palette from node error: " + e);
+    } finally {
+        toggleLoading("loading-palette-node", false);
+    }
+}
+
+async function uploadCsv() {
+    const fileInput = document.getElementById("fileInput");
+    if (!fileInput.files.length) {
+        alert("Select CSV first");
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", fileInput.files[0]);
+
+    toggleLoading("loading-upload", true);
+    document.getElementById("btnUpload").disabled = true;
+
+    try {
+        const res = await fetch("/upload_csv", { method: "POST", body: formData });
+        const data = await res.json();
+
+        if (data.status !== "success") {
+            alert(data.error || "Upload failed");
+            return;
+        }
+
+        currentFilePath = data.filepath;
+        document.getElementById("btnAnalyze").disabled = false;
+        renderSchema(data.meta);
+
+        if (data.description) {
+            document.getElementById("tableDesc").value = data.description;
+        }
+
+        alert("Data Loaded");
+    } catch (e) {
+        alert("Upload Error: " + e);
+    } finally {
+        toggleLoading("loading-upload", false);
+        document.getElementById("btnUpload").disabled = false;
+    }
+}
+
+async function runAnalysis() {
+    const desc = document.getElementById("tableDesc").value;
+    const query = document.getElementById("queryInput").value;
+    if (!currentFilePath || !query) {
+        alert("Missing data or query");
+        return;
+    }
+
+    toggleLoading("loading-analyze", true);
+    document.getElementById("btnAnalyze").disabled = true;
+
+    try {
+        const res = await fetch("/analyze", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                filepath: currentFilePath,
                 description: desc,
                 query: query,
-                analysis_result: currentAnalysisAnswer,
-                chart_source: currentChartData
-            })
+            }),
         });
         const data = await res.json();
 
-        if(data.status === 'success') {
-            const pkg = data.prompt_package || {};
-            const stage4 = pkg.stage4 || {};
-
-            if (stage4.reference_prompt) {
-                document.getElementById('refPrompt').value = stage4.reference_prompt;
-            } else {
-                alert("No stage-4 prompt generated");
-            }
-        } else {
-            alert(data.error || "Auto prompt generation failed");
+        if (data.status !== "success") {
+            alert(data.error || "Analysis failed");
+            return;
         }
-    } catch(e) {
-        alert("Auto Prompt Error: " + e);
+
+        currentAnalysisAnswer = data.answer || "";
+        document.getElementById("tab-insight").innerHTML = `<div style="font-size:12px; line-height:1.5">${(data.answer || "").replace(/\n/g, "<br>")}</div>`;
+
+        if (data.chart) {
+            currentChartData = data.chart;
+            const spec = JSON.parse(JSON.stringify(data.chart));
+            spec.width = "container";
+            spec.height = "container";
+            spec.autosize = { type: "fit", contains: "padding", resize: true };
+            document.getElementById("vis").innerHTML = "";
+            vegaEmbed("#vis", spec, { actions: false, renderer: "canvas" }).catch(console.warn);
+
+            document.getElementById("btnGenInfo").style.display = "block";
+            switchTab(1);
+        }
+    } catch (e) {
+        alert("Analysis Error: " + e);
     } finally {
-        btn.disabled = false;
-        btn.innerText = originalText;
+        toggleLoading("loading-analyze", false);
+        document.getElementById("btnAnalyze").disabled = false;
     }
-});
-
-document.getElementById('btnRefUpload').addEventListener('click', async () => {
-    const file = document.getElementById('refFileInput').files[0];
-    if(!file) return;
-    const formData = new FormData();
-    formData.append('file', file);
-    toggleLoading('loading-ref', true);
-    try {
-        const res = await fetch('/upload_ref_image', { method: 'POST', body: formData });
-        await handleRefResponse(res);
-    } catch(e) { alert(e); } finally { toggleLoading('loading-ref', false); }
-});
-
-async function renderRefImage(url) {
-    const mainImage = document.getElementById('mainImage');
-    const svgLayer = document.getElementById('interactionLayer');
-    document.getElementById('canvasContainer').style.display = 'inline-block';
-    document.getElementById('refPlaceholder').style.display = 'none';
-    svgLayer.innerHTML = '';
-    return new Promise((resolve) => {
-        mainImage.onload = () => {
-            svgLayer.setAttribute('viewBox', `0 0 ${mainImage.naturalWidth} ${mainImage.naturalHeight}`);
-            resolve();
-        };
-        mainImage.src = url + "?t=" + new Date().getTime();
-    });
 }
 
-document.getElementById('btnExtract').addEventListener('click', async () => {
-    const text = document.getElementById('regionPrompt').value;
-    if(!text) return;
-    toggleLoading('loading-palette', true);
-    document.getElementById('interactionLayer').innerHTML = '';
+async function buildForceGraphPlan() {
+    if (!currentChartData) {
+        alert("Please run analysis first.");
+        return;
+    }
+
+    stopForceGraphPolling();
+    toggleLoading("loading-info", true);
+    document.getElementById("btnGenInfo").disabled = true;
+    setForceProgress(1, "Starting force-graph job...", true);
+
     try {
-        const res = await fetch('/process_palette_pipeline', {
-            method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ image_path: currentRefImagePath, text_prompt: text })
+        const res = await fetch("/infographic/force_graph_plan/start", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                description: document.getElementById("tableDesc").value,
+                query: document.getElementById("queryInput").value,
+                analysis_result: currentAnalysisAnswer,
+                chart_source: currentChartData,
+                sample_count: 50,
+            }),
         });
         const data = await res.json();
-        if(data.status === 'success') {
-            extractedPaletteResults = (data.results || []).filter(item => Array.isArray(item.palette) && item.palette.length > 0);
-            renderMasks(data.results);
-            if (currentPlan) renderWizardStep();
-            switchTab(2); 
-        } else {
-            extractedPaletteResults = [];
-            alert('No objects found');
+
+        if (data.status !== "success") {
+            alert(data.error || "Force graph generation failed");
+            toggleLoading("loading-info", false);
+            document.getElementById("btnGenInfo").disabled = false;
+            return;
         }
-    } catch(e) { alert("Pipeline Error: " + e); }
-    finally { toggleLoading('loading-palette', false); }
-});
+        forceGraphJobId = data.job_id;
+        forceGraphLastProgress = -1;
+        forceGraphPollDelayMs = 2500;
+        scheduleForceGraphPolling(300);
+    } catch (e) {
+        alert("Force Graph Error: " + e);
+        setForceProgress(100, `Failed: ${e}`, true);
+        toggleLoading("loading-info", false);
+        document.getElementById("btnGenInfo").disabled = false;
+    } finally {
+        // Keep loading state until async polling completes.
+    }
+}
 
-function renderMasks(items) {
-    const svgLayer = document.getElementById('interactionLayer');
-    svgLayer.innerHTML = '';
-    items.forEach((item) => {
-        if(!item.polygons) return;
-        const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-        item.polygons.forEach(poly => {
-            const polygon = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
-            polygon.setAttribute('points', poly.map(p => p.join(',')).join(' '));
-            polygon.setAttribute('class', 'mask-poly');
-            g.appendChild(polygon);
+function syncForceJsonUploadState() {
+    const fileInput = document.getElementById("forceJsonInput");
+    const uploadBtn = document.getElementById("btnGenInfoFromJson");
+    if (!fileInput || !uploadBtn) return;
+    uploadBtn.disabled = !(fileInput.files && fileInput.files.length > 0);
+}
+
+async function buildForceGraphFromUploadedJson() {
+    const fileInput = document.getElementById("forceJsonInput");
+    if (!fileInput || !fileInput.files || !fileInput.files.length) {
+        alert("Please choose a JSON file first.");
+        return;
+    }
+
+    stopForceGraphPolling();
+    forceGraphJobId = null;
+    toggleLoading("loading-info-json", true);
+    setForceProgress(8, `Uploading JSON: ${fileInput.files[0].name}`, true);
+
+    const uploadBtn = document.getElementById("btnGenInfoFromJson");
+    const buildBtn = document.getElementById("btnGenInfo");
+    if (uploadBtn) uploadBtn.disabled = true;
+    if (buildBtn) buildBtn.disabled = true;
+
+    try {
+        const formData = new FormData();
+        formData.append("file", fileInput.files[0]);
+
+        const res = await fetch("/infographic/force_graph_plan/upload_json", {
+            method: "POST",
+            body: formData,
         });
-        g.addEventListener('click', (e) => {
-            e.stopPropagation();
-            document.querySelectorAll('.mask-poly').forEach(el => el.classList.remove('active'));
-            g.querySelectorAll('.mask-poly').forEach(el => el.classList.add('active'));
-            showPaletteDetails(item);
-        });
-        svgLayer.appendChild(g);
+        const data = await res.json();
+
+        if (data.status !== "success") {
+            const errMsg = data.error || "Uploaded JSON processing failed";
+            alert(errMsg);
+            setForceProgress(100, errMsg, true);
+            return;
+        }
+
+        const ok = applyForceGraphBundle(data);
+        const runCount = Number(data.target_count || 0);
+        if (ok) {
+            const doneMsg = runCount > 0
+                ? `Force graph built from uploaded JSON (${runCount} runs).`
+                : "Force graph built from uploaded JSON.";
+            setForceProgress(100, doneMsg, true);
+        } else {
+            setForceProgress(100, "Uploaded JSON parsed, but no graph nodes.", true);
+        }
+    } catch (e) {
+        alert("Upload JSON Error: " + e);
+        setForceProgress(100, `Upload JSON failed: ${e}`, true);
+    } finally {
+        toggleLoading("loading-info-json", false);
+        if (buildBtn) buildBtn.disabled = false;
+        syncForceJsonUploadState();
+    }
+}
+
+function bindEvents() {
+    document.getElementById("btnUpload").addEventListener("click", uploadCsv);
+    document.getElementById("btnAnalyze").addEventListener("click", runAnalysis);
+    document.getElementById("btnGenInfo").addEventListener("click", buildForceGraphPlan);
+    document.getElementById("btnGenInfoFromJson").addEventListener("click", buildForceGraphFromUploadedJson);
+    document.getElementById("forceJsonInput").addEventListener("change", syncForceJsonUploadState);
+
+    document.getElementById("btnForceReset").addEventListener("click", resetForceFlow);
+    document.getElementById("btnForceNext").addEventListener("click", nextForceStep);
+    document.getElementById("btnForceGenerate").addEventListener("click", generateFinalPosterFromForceGraph);
+
+    document.getElementById("btnGeneratePaletteFromNode").addEventListener("click", () => {
+        if (!selectedColorNodeId) {
+            alert("Select a color scheme node in force graph first.");
+            return;
+        }
+        generatePaletteFromSelectedColorNode({ reuseImage: true });
     });
+
+    window.addEventListener("resize", () => {
+        if (fullGraphData) renderForceStep();
+    });
+
+    syncForceJsonUploadState();
 }
 
-function showPaletteDetails(item) {
-    const rgbToHex = (r, g, b) => "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
-    const paletteHtml = item.palette ? item.palette.map(c =>
-        `<div class="color-swatch" style="background:${rgbToHex(c[0],c[1],c[2])}" title="RGB: ${c}"></div>`
-    ).join('') : 'No Palette';
-    document.getElementById('tab-palette').innerHTML = `
-        <div class="data-row"><div class="data-label">Selected Object</div><div class="data-value" style="color:var(--primary)">${item.label.toUpperCase()}</div></div>
-        <div class="data-row"><div class="data-label">Extracted Palette</div><div class="palette-grid">${paletteHtml}</div></div>
-        <div class="data-row"><div class="data-label">Harmony Score</div><div class="data-value">${item.harmony_score ? item.harmony_score.toFixed(3) : 'N/A'}</div></div>
-    `;
-    switchTab(2);
-}
+bindEvents();
+renderGalleryUI();

@@ -15,7 +15,13 @@ LLM_MAX_TOKENS = 4096
 # --- 远程 API 配置 (AIHubMix) ---
 # 请确保 .env 文件中有 AIHUBMIX_API_KEY
 AIHUBMIX_KEY = os.getenv("AIHUBMIX_API_KEY")
-AIHUBMIX_BASE_URL = "https://aihubmix.com/v1"
+AIHUBMIX_BASE_URL = os.getenv("AIHUBMIX_BASE_URL", "https://aihubmix.com/v1")
 # 指定你想要调用的远程模型名称
-REMOTE_MODEL_NAME = "claude-opus-4-5-think"
-REMOTE_MODEL_MAX_TOKENS = 8192
+REMOTE_MODEL_NAME = os.getenv("REMOTE_MODEL_NAME", "claude-opus-4-5-think")
+REMOTE_MODEL_MAX_TOKENS = int(os.getenv("REMOTE_MODEL_MAX_TOKENS", "8192"))
+
+# --- Doubao Seed Pro 配置 ---
+DOUBAO_MODEL_NAME = os.getenv("DOUBAO_MODEL_NAME", "doubao-seed-2-0-pro")
+DOUBAO_MODEL_MAX_TOKENS = int(os.getenv("DOUBAO_MODEL_MAX_TOKENS", "8192"))
+# disabled | enabled | auto
+DOUBAO_THINKING_TYPE = os.getenv("DOUBAO_THINKING_TYPE", "disabled")
