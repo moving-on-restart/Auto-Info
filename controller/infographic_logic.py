@@ -3,6 +3,7 @@ import json
 import os
 import copy
 import time
+import math
 import concurrent.futures
 import threading
 import uuid
@@ -26,10 +27,27 @@ FORCE_GRAPH_DEFAULT_SAMPLE_COUNT = 50
 FORCE_GRAPH_MAX_SAMPLE_COUNT = 80
 FORCE_GRAPH_MAX_WORKERS = 6
 _LAYER_ORDER = ["bottom_layer", "middle_layer", "top_layer"]
+_FORCE_LAYOUT_MODE = "force"
+_SOM_LAYOUT_MODE = "som"
+_SOM_TEXT_MODEL_NAME = "shibing624/text2vec-base-chinese"
+_SOM_TEXT_MODEL = None
+_SOM_TEXT_MODEL_LOCK = threading.Lock()
+_SOM_LAYER_ORDER_PRIORITY = {
+    "bottom_layer": 1,
+    "middle_layer": 2,
+    "top_layer": 3,
+    "title_layer": 4,
+    "title_scheme": 4,
+}
 
 _FORCE_GRAPH_JOBS = {}
 _FORCE_GRAPH_JOBS_LOCK = threading.Lock()
 _FORCE_GRAPH_JOB_TTL_SECONDS = 30 * 60
+
+
+def _normalize_layout_mode(layout_mode):
+    mode = str(layout_mode or _FORCE_LAYOUT_MODE).strip().lower()
+    return _SOM_LAYOUT_MODE if mode == _SOM_LAYOUT_MODE else _FORCE_LAYOUT_MODE
 
 
 def _rgb_triplet_to_hex(color_triplet):
@@ -93,12 +111,14 @@ def _cleanup_expired_force_graph_jobs():
             _FORCE_GRAPH_JOBS.pop(job_id, None)
 
 
-def _create_force_graph_job(sample_count):
+def _create_force_graph_job(sample_count, layout_mode=_FORCE_LAYOUT_MODE):
     job_id = uuid.uuid4().hex
     now_ts = time.time()
     target_count = _normalize_sample_count(sample_count)
+    normalized_mode = _normalize_layout_mode(layout_mode)
     job = {
         "job_id": job_id,
+        "layout_mode": normalized_mode,
         "status": "queued",
         "message": "Queued",
         "progress": 0,
@@ -294,6 +314,301 @@ def _build_group_defaults(nodes):
     return {layer: {gid: payload["id"] for gid, payload in groups.items()} for layer, groups in temp.items()}
 
 
+def _extract_option_uid_label_desc(option):
+    if isinstance(option, dict):
+        uid = (
+            option.get("value")
+            or option.get("style")
+            or option.get("category")
+            or option.get("keywords")
+            or option.get("label")
+            or option.get("suggestion")
+            or option.get("name")
+        )
+        label = (
+            option.get("label")
+            or option.get("suggestion")
+            or option.get("value")
+            or option.get("style")
+            or option.get("category")
+            or option.get("keywords")
+            or option.get("name")
+        )
+        desc = (
+            option.get("desc")
+            or option.get("description")
+            or option.get("text")
+            or option.get("content")
+            or option.get("suggestion")
+            or ""
+        )
+        uid_text = str(uid).strip() if uid is not None else ""
+        label_text = str(label).strip() if label is not None else ""
+        desc_text = str(desc).strip() if desc is not None else ""
+        payload = copy.deepcopy(option)
+        if not uid_text:
+            uid_text = label_text
+        return uid_text, label_text, desc_text, payload
+
+    if option is None:
+        return "", "", "", {}
+
+    text = str(option).strip()
+    return text, text, "", {"label": text}
+
+
+def _extract_elements_and_rules_for_som(raw_runs):
+    try:
+        import networkx as nx
+    except Exception as import_error:
+        raise RuntimeError("networkx is required for SOM mode.") from import_error
+
+    if not isinstance(raw_runs, list) or not raw_runs:
+        raise ValueError("raw_runs must be a non-empty list")
+
+    elements = {}
+    run_ids = []
+    run_to_elements = defaultdict(list)
+
+    for idx, run in enumerate(raw_runs, start=1):
+        run_id = run.get("run_id") if isinstance(run, dict) else None
+        if run_id is None:
+            run_id = idx
+        run_ids.append(run_id)
+
+        pool = run.get("generated_scheme", {}).get("element_pool", {}) if isinstance(run, dict) else {}
+        if not isinstance(pool, dict):
+            continue
+
+        for layer_name, categories in pool.items():
+            if not isinstance(categories, list):
+                continue
+            layer_text = str(layer_name or "").strip() or "top_layer"
+
+            for cat in categories:
+                if not isinstance(cat, dict):
+                    continue
+
+                group_id = str(cat.get("id") or cat.get("name") or "unknown_group").strip() or "unknown_group"
+                category_name = str(cat.get("name") or group_id).strip() or group_id
+                options = cat.get("options") or []
+                if not isinstance(options, list):
+                    continue
+
+                for option in options:
+                    uid_text, label_text, desc_text, option_payload = _extract_option_uid_label_desc(option)
+                    if not uid_text and not label_text:
+                        continue
+                    if not uid_text:
+                        uid_text = label_text
+                    if not label_text:
+                        label_text = uid_text
+
+                    global_id = f"{layer_text}::{group_id}::{uid_text}"
+
+                    if global_id not in elements:
+                        elements[global_id] = {
+                            "id": global_id,
+                            "layer": layer_text,
+                            "category": category_name,
+                            "group": category_name,
+                            "group_id": group_id,
+                            "label": label_text,
+                            "name": label_text,
+                            "desc": desc_text,
+                            "count": 0,
+                            "val": 0,
+                            "runs": set(),
+                            "option_payload": option_payload if isinstance(option_payload, dict) else {},
+                            "is_palette_node": group_id == "color_scheme",
+                        }
+
+                    elements[global_id]["runs"].add(run_id)
+                    elements[global_id]["count"] += 1
+                    elements[global_id]["val"] += 1
+                    run_to_elements[run_id].append(global_id)
+
+    total_runs = len(run_ids)
+    if total_runs == 0:
+        raise ValueError("No valid runs were provided for SOM generation.")
+
+    for value in elements.values():
+        value["runs"] = list(value["runs"])
+
+    G = nx.Graph()
+    for node_id in elements:
+        G.add_node(node_id)
+
+    for _, elem_ids in run_to_elements.items():
+        for e1, e2 in combinations(elem_ids, 2):
+            if G.has_edge(e1, e2):
+                G[e1][e2]["weight"] += 1
+            else:
+                G.add_edge(e1, e2, weight=1)
+
+    if len(G.nodes) > 0 and len(G.edges) > 0:
+        pagerank = nx.pagerank(G, weight="weight")
+    else:
+        pagerank = {}
+    degree_cent = nx.degree_centrality(G) if len(G.nodes) > 0 else {}
+
+    links = []
+    for e1, e2 in G.edges():
+        co_occur = int(G[e1][e2]["weight"])
+        p_a = elements[e1]["count"] / total_runs if total_runs > 0 else 0
+        p_b = elements[e2]["count"] / total_runs if total_runs > 0 else 0
+        p_ab = co_occur / total_runs if total_runs > 0 else 0
+        denom = p_a * p_b
+        if denom <= 0:
+            continue
+        lift = p_ab / denom
+        layer1 = elements[e1]["layer"]
+        layer2 = elements[e2]["layer"]
+        if layer1 != layer2 and lift > 1.2:
+            links.append(
+                {
+                    "source": e1,
+                    "target": e2,
+                    "lift": round(float(lift), 3),
+                    "co_occur": co_occur,
+                }
+            )
+
+    links.sort(key=lambda item: (-float(item.get("lift", 0)), -int(item.get("co_occur", 0))))
+    return elements, run_ids, pagerank, degree_cent, links
+
+
+def _l2_normalize_rows(matrix):
+    try:
+        import numpy as np
+    except Exception as import_error:
+        raise RuntimeError("numpy is required for SOM mode.") from import_error
+
+    if matrix.size == 0:
+        return matrix
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    return np.divide(matrix, norms, out=np.zeros_like(matrix), where=norms != 0)
+
+
+def _get_som_text_model():
+    global _SOM_TEXT_MODEL
+    if _SOM_TEXT_MODEL is not None:
+        return _SOM_TEXT_MODEL
+
+    with _SOM_TEXT_MODEL_LOCK:
+        if _SOM_TEXT_MODEL is not None:
+            return _SOM_TEXT_MODEL
+        try:
+            from sentence_transformers import SentenceTransformer
+        except Exception as import_error:
+            raise RuntimeError("sentence-transformers is required for SOM mode.") from import_error
+        _SOM_TEXT_MODEL = SentenceTransformer(_SOM_TEXT_MODEL_NAME)
+        return _SOM_TEXT_MODEL
+
+
+def _train_advanced_som(elements, run_ids, pagerank, degree_cent):
+    try:
+        import numpy as np
+        from minisom import MiniSom
+        from scipy.spatial.distance import cdist
+        from scipy.optimize import linear_sum_assignment
+    except Exception as import_error:
+        raise RuntimeError("SOM mode requires minisom, scipy, and numpy.") from import_error
+
+    element_list = list(elements.values())
+    if not element_list:
+        return []
+
+    model = _get_som_text_model()
+    texts = [f"{e.get('category', '')} {e.get('label', '')} {e.get('desc', '')}".strip() for e in element_list]
+    nlp_vectors = np.array(model.encode(texts))
+    nlp_vectors = _l2_normalize_rows(nlp_vectors)
+
+    run_sets = [set(e.get("runs", [])) for e in element_list]
+    co_vectors = np.array(
+        [[1.0 if run_id in run_set else 0.0 for run_id in run_ids] for run_set in run_sets],
+        dtype=float,
+    )
+    co_vectors = _l2_normalize_rows(co_vectors)
+
+    layers = sorted({str(e.get("layer") or "top_layer") for e in element_list}, key=lambda x: (_SOM_LAYER_ORDER_PRIORITY.get(x, 99), x))
+    layer_vectors = np.array([[1.0 if e.get("layer") == layer else 0.0 for layer in layers] for e in element_list], dtype=float)
+
+    categories = sorted({str(e.get("category") or "unknown") for e in element_list})
+    category_vectors = np.array(
+        [[1.0 if e.get("category") == category else 0.0 for category in categories] for e in element_list],
+        dtype=float,
+    )
+
+    pr_vec = np.array([float(pagerank.get(e.get("id"), 0.0)) for e in element_list]).reshape(-1, 1)
+    deg_vec = np.array([float(degree_cent.get(e.get("id"), 0.0)) for e in element_list]).reshape(-1, 1)
+    graph_vectors = np.hstack([pr_vec, deg_vec])
+    graph_vectors = graph_vectors / (np.linalg.norm(graph_vectors, axis=0, keepdims=True) + 1e-9)
+
+    combined_vectors = np.hstack(
+        [
+            0.35 * nlp_vectors,
+            0.25 * co_vectors,
+            0.20 * category_vectors,
+            0.10 * layer_vectors,
+            0.10 * graph_vectors,
+        ]
+    )
+
+    num_elements = len(element_list)
+    grid_size = int(math.ceil(math.sqrt(num_elements))) + 5
+    num_grids = grid_size * grid_size
+
+    som = MiniSom(
+        grid_size,
+        grid_size,
+        combined_vectors.shape[1],
+        sigma=1.2,
+        learning_rate=0.5,
+        topology="hexagonal",
+        random_seed=42,
+    )
+
+    try:
+        som.pca_weights_init(combined_vectors)
+    except Exception:
+        som.random_weights_init(combined_vectors)
+    som.train_batch(combined_vectors, 5000)
+
+    u_matrix = som.distance_map()
+    som_nodes = [
+        {"x": x, "y": y, "u_value": float(u_matrix[x][y]), "elements": []}
+        for x in range(grid_size)
+        for y in range(grid_size)
+    ]
+
+    grid_weights = som.get_weights().reshape(num_grids, -1)
+    distances = cdist(combined_vectors, grid_weights, metric="cosine")
+    row_ind, col_ind = linear_sum_assignment(distances)
+
+    for elem_idx, grid_idx in zip(row_ind, col_ind):
+        som_nodes[int(grid_idx)]["elements"].append(element_list[int(elem_idx)])
+
+    return som_nodes
+
+
+def _build_group_defaults_from_elements(elements_dict):
+    temp = {layer: {} for layer in _LAYER_ORDER}
+    for elem in elements_dict.values():
+        layer = elem.get("layer")
+        if layer not in temp:
+            continue
+        group_id = elem.get("group_id")
+        node_id = elem.get("id")
+        score = int(elem.get("count", 0))
+        if not group_id or not node_id:
+            continue
+        existing = temp[layer].get(group_id)
+        if existing is None or score > existing["score"]:
+            temp[layer][group_id] = {"id": node_id, "score": score}
+    return {layer: {gid: payload["id"] for gid, payload in groups.items()} for layer, groups in temp.items()}
+
+
 def _extract_single_run_payload(entry):
     if not isinstance(entry, dict):
         return None
@@ -372,6 +687,36 @@ def generate_force_graph_bundle_from_runs(raw_runs):
         "max_attempts": len(raw_runs),
         "graph_data": graph_data,
         "group_defaults": group_defaults,
+        "layout_mode": _FORCE_LAYOUT_MODE,
+    }
+
+
+def generate_som_bundle_from_runs(raw_runs):
+    if not isinstance(raw_runs, list) or not raw_runs:
+        raise ValueError("raw_runs must be a non-empty list")
+
+    elements, run_ids, pagerank, degree_cent, links = _extract_elements_and_rules_for_som(raw_runs)
+    if not elements:
+        raise ValueError("No SOM elements could be built from uploaded runs.")
+
+    som_nodes = _train_advanced_som(elements, run_ids, pagerank, degree_cent)
+    if not som_nodes:
+        raise ValueError("SOM training produced no nodes.")
+
+    group_defaults = _build_group_defaults_from_elements(elements)
+
+    return {
+        "target_count": len(raw_runs),
+        "success_count": len(raw_runs),
+        "failed_count": 0,
+        "attempted_count": len(raw_runs),
+        "max_attempts": len(raw_runs),
+        "graph_data": {
+            "nodes": som_nodes,
+            "links": links,
+        },
+        "group_defaults": group_defaults,
+        "layout_mode": _SOM_LAYOUT_MODE,
     }
 
 
@@ -391,17 +736,18 @@ def _generate_single_plan_worker(description, query, analysis_result, chart_str)
         return None
 
 
-def generate_force_graph_bundle(
+def _sample_runs_for_graph_generation(
     description,
     query,
     analysis_result,
     chart_json,
-    sample_count=FORCE_GRAPH_DEFAULT_SAMPLE_COUNT,
+    sample_count,
     progress_callback=None,
+    mode_label="force-graph",
 ):
     target_count = _normalize_sample_count(sample_count)
     if not query:
-        raise ValueError("Query is required for force-graph planning.")
+        raise ValueError("Query is required for graph planning.")
 
     chart_str = json.dumps(chart_json, ensure_ascii=False) if isinstance(chart_json, dict) else "{}"
     if len(chart_str) > 4000:
@@ -419,7 +765,7 @@ def generate_force_graph_bundle(
             {
                 "stage": "sampling",
                 "progress": 2,
-                "message": "Starting force-graph scheme sampling...",
+                "message": f"Starting {mode_label} scheme sampling...",
                 "attempted_count": completed_attempts,
                 "max_attempts": max_attempts,
                 "success_count": len(raw_runs),
@@ -481,7 +827,40 @@ def generate_force_graph_bundle(
                     break
 
     if not raw_runs:
-        raise RuntimeError("All force-graph plan generations failed.")
+        raise RuntimeError(f"All {mode_label} plan generations failed.")
+
+    return {
+        "target_count": target_count,
+        "raw_runs": raw_runs,
+        "failed_count": failed_count,
+        "completed_attempts": completed_attempts,
+        "max_attempts": max_attempts,
+    }
+
+
+def generate_force_graph_bundle(
+    description,
+    query,
+    analysis_result,
+    chart_json,
+    sample_count=FORCE_GRAPH_DEFAULT_SAMPLE_COUNT,
+    progress_callback=None,
+):
+    sample_result = _sample_runs_for_graph_generation(
+        description=description,
+        query=query,
+        analysis_result=analysis_result,
+        chart_json=chart_json,
+        sample_count=sample_count,
+        progress_callback=progress_callback,
+        mode_label="force-graph",
+    )
+
+    raw_runs = sample_result["raw_runs"]
+    target_count = sample_result["target_count"]
+    failed_count = sample_result["failed_count"]
+    completed_attempts = sample_result["completed_attempts"]
+    max_attempts = sample_result["max_attempts"]
 
     if callable(progress_callback):
         progress_callback(
@@ -508,6 +887,7 @@ def generate_force_graph_bundle(
         "max_attempts": max_attempts,
         "graph_data": graph_data,
         "group_defaults": group_defaults,
+        "layout_mode": _FORCE_LAYOUT_MODE,
     }
 
     if callable(progress_callback):
@@ -527,7 +907,87 @@ def generate_force_graph_bundle(
     return bundle
 
 
-def _run_force_graph_job(job_id, description, query, analysis_result, chart_json, sample_count):
+def generate_som_bundle(
+    description,
+    query,
+    analysis_result,
+    chart_json,
+    sample_count=FORCE_GRAPH_DEFAULT_SAMPLE_COUNT,
+    progress_callback=None,
+):
+    sample_result = _sample_runs_for_graph_generation(
+        description=description,
+        query=query,
+        analysis_result=analysis_result,
+        chart_json=chart_json,
+        sample_count=sample_count,
+        progress_callback=progress_callback,
+        mode_label="som-graph",
+    )
+
+    raw_runs = sample_result["raw_runs"]
+    target_count = sample_result["target_count"]
+    failed_count = sample_result["failed_count"]
+    completed_attempts = sample_result["completed_attempts"]
+    max_attempts = sample_result["max_attempts"]
+
+    if callable(progress_callback):
+        progress_callback(
+            {
+                "stage": "building_graph",
+                "progress": 94,
+                "message": "Building SOM graph structure...",
+                "attempted_count": completed_attempts,
+                "max_attempts": max_attempts,
+                "success_count": len(raw_runs),
+                "failed_count": failed_count,
+                "target_count": target_count,
+            }
+        )
+
+    elements, run_ids, pagerank, degree_cent, links = _extract_elements_and_rules_for_som(raw_runs)
+    if not elements:
+        raise RuntimeError("No SOM elements could be built from sampled runs.")
+
+    som_nodes = _train_advanced_som(elements, run_ids, pagerank, degree_cent)
+    if not som_nodes:
+        raise RuntimeError("SOM training produced no nodes.")
+    group_defaults = _build_group_defaults_from_elements(elements)
+
+    bundle = {
+        "target_count": target_count,
+        "success_count": len(raw_runs),
+        "failed_count": failed_count,
+        "attempted_count": completed_attempts,
+        "max_attempts": max_attempts,
+        "graph_data": {
+            "nodes": som_nodes,
+            "links": links,
+        },
+        "group_defaults": group_defaults,
+        "layout_mode": _SOM_LAYOUT_MODE,
+    }
+
+    if callable(progress_callback):
+        progress_callback(
+            {
+                "stage": "completed",
+                "progress": 100,
+                "message": "SOM graph generation completed.",
+                "attempted_count": completed_attempts,
+                "max_attempts": max_attempts,
+                "success_count": len(raw_runs),
+                "failed_count": failed_count,
+                "target_count": target_count,
+            }
+        )
+
+    return bundle
+
+
+def _run_force_graph_job(job_id, description, query, analysis_result, chart_json, sample_count, layout_mode):
+    normalized_mode = _normalize_layout_mode(layout_mode)
+
     def on_progress(payload):
         _update_force_graph_job(
             job_id,
@@ -542,15 +1002,28 @@ def _run_force_graph_job(job_id, description, query, analysis_result, chart_json
         )
 
     try:
-        _update_force_graph_job(job_id, status="running", progress=1, message="Force graph job started")
-        bundle = generate_force_graph_bundle(
-            description=description,
-            query=query,
-            analysis_result=analysis_result,
-            chart_json=chart_json,
-            sample_count=sample_count,
-            progress_callback=on_progress,
-        )
+        start_msg = "SOM graph job started" if normalized_mode == _SOM_LAYOUT_MODE else "Force graph job started"
+        _update_force_graph_job(job_id, status="running", progress=1, message=start_msg, layout_mode=normalized_mode)
+
+        if normalized_mode == _SOM_LAYOUT_MODE:
+            bundle = generate_som_bundle(
+                description=description,
+                query=query,
+                analysis_result=analysis_result,
+                chart_json=chart_json,
+                sample_count=sample_count,
+                progress_callback=on_progress,
+            )
+        else:
+            bundle = generate_force_graph_bundle(
+                description=description,
+                query=query,
+                analysis_result=analysis_result,
+                chart_json=chart_json,
+                sample_count=sample_count,
+                progress_callback=on_progress,
+            )
+
         _update_force_graph_job(
             job_id,
             status="completed",
@@ -558,6 +1031,7 @@ def _run_force_graph_job(job_id, description, query, analysis_result, chart_json
             message="Completed",
             result=bundle,
             error=None,
+            layout_mode=normalized_mode,
             attempted_count=int(bundle.get("attempted_count", 0)),
             max_attempts=int(bundle.get("max_attempts", 0)),
             success_count=int(bundle.get("success_count", 0)),
@@ -570,17 +1044,26 @@ def _run_force_graph_job(job_id, description, query, analysis_result, chart_json
             status="failed",
             progress=100,
             message="Failed",
+            layout_mode=normalized_mode,
             error=str(e),
         )
-        logger.error(f"Force graph async job failed: {e}")
+        logger.error(f"Graph async job failed ({normalized_mode}): {e}")
 
 
-def start_force_graph_job(description, query, analysis_result, chart_json, sample_count=FORCE_GRAPH_DEFAULT_SAMPLE_COUNT):
+def start_force_graph_job(
+    description,
+    query,
+    analysis_result,
+    chart_json,
+    sample_count=FORCE_GRAPH_DEFAULT_SAMPLE_COUNT,
+    layout_mode=_FORCE_LAYOUT_MODE,
+):
     _cleanup_expired_force_graph_jobs()
-    job_id = _create_force_graph_job(sample_count)
+    normalized_mode = _normalize_layout_mode(layout_mode)
+    job_id = _create_force_graph_job(sample_count, layout_mode=normalized_mode)
     worker = threading.Thread(
         target=_run_force_graph_job,
-        args=(job_id, description, query, analysis_result, chart_json, sample_count),
+        args=(job_id, description, query, analysis_result, chart_json, sample_count, normalized_mode),
         daemon=True,
     )
     worker.start()

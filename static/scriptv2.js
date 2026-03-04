@@ -2,15 +2,54 @@
 let currentAnalysisAnswer = "";
 let currentChartData = null;
 
+let graphLayoutMode = "force";
 let graphBundle = null;
 let fullGraphData = null;
+let forceGraphData = null;
+let somGraphData = null;
+let somSelectionData = null;
 let graphNodeMap = {};
 let groupDefaults = {};
 let forceNodeTooltipEl = null;
 
 const layerOrder = ["bottom_layer", "middle_layer", "top_layer"];
+const somLayerPriority = {
+    bottom_layer: 1,
+    middle_layer: 2,
+    top_layer: 3,
+    title_layer: 4,
+    title_scheme: 4,
+};
+const somHexSize = 14;
+const somHexWidth = Math.sqrt(3) * somHexSize;
+const somHexHeight = 2 * somHexSize;
+const somEmptyColor = "#f4f6f9";
+const somColorPalettes = [
+    { scale: d3.interpolateGreens, hex: "#27ae60" },
+    { scale: d3.interpolateTeals, hex: "#16a085" },
+    { scale: d3.interpolateBlues, hex: "#2980b9" },
+    { scale: d3.interpolatePurples, hex: "#8e44ad" },
+    { scale: d3.interpolateReds, hex: "#c0392b" },
+    { scale: d3.interpolateOranges, hex: "#d35400" },
+    { scale: d3.interpolateYlOrBr, hex: "#b8860b" },
+    { scale: d3.interpolateCool, hex: "#00b894" },
+    { scale: d3.interpolateWarm, hex: "#d63031" },
+    { scale: d3.interpolateCividis, hex: "#2c3e50" },
+];
+
 let forceStep = 0;
 let selectedNodes = [];
+let somStep = 0;
+let somPhases = [];
+let somRequirements = {};
+let somSelections = {};
+let somCategoryColorScales = {};
+let somBadgeColors = {};
+let somLayerColors = {};
+let somCurrentActiveDegree = {};
+let somLinkLookup = {};
+let somNodeByElementId = {};
+let somLinkThicknessScale = null;
 
 let selectedColorNodeId = "";
 let selectedPaletteMeta = null;
@@ -49,6 +88,294 @@ function colorForGroup(key) {
         hash |= 0;
     }
     return fallback[Math.abs(hash) % fallback.length];
+}
+
+function getGraphModeLabel(mode) {
+    return mode === "som" ? "SOM Graph" : "Force Graph";
+}
+
+function updateGraphActionLabels() {
+    const buildBtn = document.getElementById("btnGenInfo");
+    if (buildBtn) buildBtn.textContent = graphLayoutMode === "som" ? "Build SOM Graph (50 JSON)" : "Build Force Graph (50 JSON)";
+
+    const uploadBuildBtn = document.getElementById("btnGenInfoFromJson");
+    if (uploadBuildBtn) {
+        uploadBuildBtn.textContent = graphLayoutMode === "som"
+            ? "Build SOM Graph From Uploaded JSON"
+            : "Build Force Graph From Uploaded JSON";
+    }
+}
+
+function getSomTooltipElement() {
+    const container = document.getElementById("forceGraphContainer");
+    if (!container) return null;
+    return container.querySelector(".som-tooltip");
+}
+
+function hideSomTooltip() {
+    const tooltip = getSomTooltipElement();
+    if (tooltip) tooltip.style.visibility = "hidden";
+}
+
+function setGraphContainerModeClass() {
+    const container = document.getElementById("forceGraphContainer");
+    if (!container) return;
+    container.classList.toggle("som-graph-container", graphLayoutMode === "som");
+}
+
+function renderGraphPlaceholder() {
+    const container = document.getElementById("forceGraphContainer");
+    if (!container) return;
+    hideForceNodeTooltip();
+    hideSomTooltip();
+    setGraphContainerModeClass();
+    if (graphLayoutMode === "som") {
+        container.innerHTML = '<div class="center-msg">Click "Build SOM Graph (50 JSON)" to start</div>';
+    } else {
+        container.innerHTML = '<div class="center-msg">Click "Build Force Graph (50 JSON)" to start</div>';
+    }
+}
+
+function updateGraphModeUI() {
+    const title = document.getElementById("graphExplorerTitle");
+    if (title) {
+        title.textContent = graphLayoutMode === "som"
+            ? "SOM-GUIDED SCHEME EXPLORER"
+            : "FORCE-GUIDED SCHEME EXPLORER";
+    }
+
+    const forceBtn = document.getElementById("btnLayoutForce");
+    const somBtn = document.getElementById("btnLayoutSom");
+    if (forceBtn) forceBtn.classList.toggle("active", graphLayoutMode === "force");
+    if (somBtn) somBtn.classList.toggle("active", graphLayoutMode === "som");
+
+    const stepIndicator = document.getElementById("forceStepIndicator");
+    if (stepIndicator) {
+        stepIndicator.style.display = graphLayoutMode === "som" ? "none" : "flex";
+    }
+
+    const btnNext = document.getElementById("btnForceNext");
+    const btnGenerate = document.getElementById("btnForceGenerate");
+    if (graphLayoutMode === "som") {
+        if (btnNext) btnNext.style.display = "none";
+        if (btnGenerate) btnGenerate.style.display = "none";
+    } else {
+        if (btnGenerate) btnGenerate.style.display = "none";
+        if (btnNext && !forceGraphData) btnNext.style.display = "none";
+    }
+
+    updateGraphActionLabels();
+    setGraphContainerModeClass();
+}
+
+function useForceGraphAsActiveData() {
+    fullGraphData = forceGraphData;
+    graphNodeMap = {};
+    (fullGraphData?.nodes || []).forEach((node) => {
+        graphNodeMap[node.id] = node;
+    });
+}
+
+function normalizeSomElement(rawElement) {
+    if (!rawElement || typeof rawElement !== "object") return null;
+    const elementId = String(rawElement.id || "").trim();
+    if (!elementId) return null;
+
+    const layer = String(rawElement.layer || "top_layer").trim() || "top_layer";
+    const groupId = String(rawElement.group_id || rawElement.category || "unknown_group").trim() || "unknown_group";
+    const groupName = String(rawElement.group || rawElement.category || groupId).trim() || groupId;
+    const nodeName = String(rawElement.name || rawElement.label || elementId).trim() || elementId;
+
+    return {
+        id: elementId,
+        name: nodeName,
+        label: nodeName,
+        group: groupName,
+        group_id: groupId,
+        category: String(rawElement.category || groupName).trim() || groupName,
+        layer,
+        desc: String(rawElement.desc || "").trim(),
+        val: Number(rawElement.val ?? rawElement.count ?? 1) || 1,
+        count: Number(rawElement.count ?? rawElement.val ?? 1) || 1,
+        option_payload: rawElement.option_payload && typeof rawElement.option_payload === "object"
+            ? rawElement.option_payload
+            : {},
+        is_palette_node: Boolean(rawElement.is_palette_node || groupId === "color_scheme"),
+    };
+}
+
+function prepareSomSelectionData() {
+    const cells = (somGraphData?.nodes || []).map((cell) => ({
+        x: Number(cell.x || 0),
+        y: Number(cell.y || 0),
+        u_value: Number(cell.u_value || 0),
+        elements: Array.isArray(cell.elements) ? cell.elements : [],
+    }));
+    const links = Array.isArray(somGraphData?.links) ? somGraphData.links : [];
+
+    const normalizedCells = [];
+    const elementNodes = [];
+    somNodeByElementId = {};
+    somLinkLookup = {};
+    somCategoryColorScales = {};
+    somBadgeColors = {};
+    somLayerColors = {};
+    somCurrentActiveDegree = {};
+    somRequirements = {};
+
+    const categorySeen = new Set();
+    let categoryCount = 0;
+    const layerSet = new Set();
+    let maxCount = 1;
+    let maxLift = 1;
+
+    cells.forEach((cell) => {
+        const normalizedElements = cell.elements
+            .map((elem) => normalizeSomElement(elem))
+            .filter(Boolean);
+        const normalizedCell = {
+            x: cell.x,
+            y: cell.y,
+            u_value: cell.u_value,
+            elements: normalizedElements,
+            cx: (cell.x + (cell.y % 2 === 0 ? 0 : 0.5)) * somHexWidth,
+            cy: cell.y * (somHexHeight * 0.75),
+        };
+        normalizedCells.push(normalizedCell);
+
+        if (normalizedElements.length > 0) {
+            const elem = normalizedElements[0];
+            elementNodes.push(elem);
+            somNodeByElementId[elem.id] = normalizedCell;
+
+            layerSet.add(elem.layer);
+            if (!somRequirements[elem.layer]) somRequirements[elem.layer] = new Set();
+            somRequirements[elem.layer].add(elem.category);
+
+            if (!categorySeen.has(elem.category)) {
+                const cp = somColorPalettes[categoryCount % somColorPalettes.length];
+                somCategoryColorScales[elem.category] = cp.scale;
+                somBadgeColors[elem.category] = cp.hex;
+                categorySeen.add(elem.category);
+                categoryCount += 1;
+            }
+
+            maxCount = Math.max(maxCount, Number(elem.count || 1));
+        }
+    });
+
+    somPhases = Array.from(layerSet).sort(
+        (a, b) => (somLayerPriority[a] || 99) - (somLayerPriority[b] || 99)
+    );
+
+    somPhases.forEach((layer, idx) => {
+        somLayerColors[layer] = somColorPalettes[idx % somColorPalettes.length].hex;
+        somRequirements[layer] = Array.from(somRequirements[layer] || []);
+    });
+
+    links.forEach((link) => {
+        const sId = String(link.source || "");
+        const tId = String(link.target || "");
+        if (!sId || !tId) return;
+        const key = [sId, tId].sort().join("||");
+        somLinkLookup[key] = {
+            source: sId,
+            target: tId,
+            lift: Number(link.lift || 0),
+            co_occur: Number(link.co_occur || 0),
+        };
+        maxLift = Math.max(maxLift, Number(link.lift || 0));
+    });
+
+    somLinkThicknessScale = d3
+        .scaleLinear()
+        .domain([0, maxLift || 1])
+        .range([1.5, 4.5])
+        .clamp(true);
+
+    somSelectionData = {
+        cells: normalizedCells,
+        links,
+        maxCount,
+    };
+
+    fullGraphData = {
+        nodes: elementNodes,
+        links: links.map((link) => ({
+            source: link.source,
+            target: link.target,
+            lift: Number(link.lift || 0),
+            co_occur: Number(link.co_occur || 0),
+            is_intra: false,
+        })),
+    };
+    graphNodeMap = {};
+    elementNodes.forEach((node) => {
+        graphNodeMap[node.id] = node;
+    });
+}
+
+function syncSelectedNodesFromSomSelections() {
+    const nodes = [];
+    somPhases.forEach((layer) => {
+        const byCat = somSelections[layer] || {};
+        Object.values(byCat).forEach((node) => {
+            if (!node) return;
+            nodes.push(node);
+        });
+    });
+    selectedNodes = nodes;
+}
+
+function initializeSomSelections() {
+    somSelections = {};
+    somPhases.forEach((layer) => {
+        somSelections[layer] = {};
+    });
+    somStep = 0;
+    syncSelectedNodesFromSomSelections();
+}
+
+function setGraphLayoutMode(mode, opts = {}) {
+    const normalizedMode = mode === "som" ? "som" : "force";
+    const preserveSelection = Boolean(opts.preserveSelection);
+    const preservePalette = Boolean(opts.preservePalette);
+
+    graphLayoutMode = normalizedMode;
+    updateGraphModeUI();
+
+    if (!preserveSelection) {
+        selectedNodes = [];
+        if (!preservePalette) {
+            clearPaletteSelectionState();
+        }
+    }
+
+    if (graphLayoutMode === "som") {
+        hideForceNodeTooltip();
+        if (somGraphData && Array.isArray(somGraphData.nodes) && somGraphData.nodes.length > 0) {
+            prepareSomSelectionData();
+            initializeSomSelections();
+            renderSomStep();
+        } else {
+            fullGraphData = null;
+            graphNodeMap = {};
+            renderDesignSummary();
+            renderGraphPlaceholder();
+        }
+        return;
+    }
+
+    hideSomTooltip();
+    if (forceGraphData && Array.isArray(forceGraphData.nodes) && forceGraphData.nodes.length > 0) {
+        useForceGraphAsActiveData();
+        initForceExplorer();
+    } else {
+        fullGraphData = null;
+        graphNodeMap = {};
+        renderDesignSummary();
+        renderGraphPlaceholder();
+    }
 }
 
 function toggleLoading(id, show) {
@@ -177,13 +504,15 @@ async function pollForceGraphProgressOnce() {
         }
 
         const pct = Number(progressData.progress || 0);
-        const statusText = `${progressData.message || "Running"} | success ${progressData.success_count || 0}/${progressData.target_count || 50}, failed ${progressData.failed_count || 0}`;
+        const modeLabel = getGraphModeLabel(String(progressData.layout_mode || graphLayoutMode || "force").toLowerCase() === "som" ? "som" : "force");
+        const statusText = `${modeLabel}: ${progressData.message || "Running"} | success ${progressData.success_count || 0}/${progressData.target_count || 50}, failed ${progressData.failed_count || 0}`;
         setForceProgress(pct, statusText, true);
 
         if (progressData.job_status === "completed") {
             stopForceGraphPolling();
-            const ok = applyForceGraphBundle(progressData.result || {});
-            setForceProgress(100, ok ? "Force graph completed." : "Completed with empty graph.", true);
+            const mode = String(progressData.layout_mode || graphLayoutMode || "force").toLowerCase() === "som" ? "som" : "force";
+            const ok = applyGraphBundleByMode(progressData.result || {}, mode);
+            setForceProgress(100, ok ? `${getGraphModeLabel(mode)} completed.` : "Completed with empty graph.", true);
             toggleLoading("loading-info", false);
             document.getElementById("btnGenInfo").disabled = false;
             forceGraphJobId = null;
@@ -192,7 +521,8 @@ async function pollForceGraphProgressOnce() {
 
         if (progressData.job_status === "failed") {
             stopForceGraphPolling();
-            const err = progressData.error || "Force graph generation failed";
+            const mode = String(progressData.layout_mode || graphLayoutMode || "force").toLowerCase() === "som" ? "som" : "force";
+            const err = progressData.error || `${getGraphModeLabel(mode)} generation failed`;
             setForceProgress(100, err, true);
             alert(err);
             toggleLoading("loading-info", false);
@@ -237,17 +567,30 @@ async function pollForceGraphProgressOnce() {
     }
 }
 
-function applyForceGraphBundle(data) {
+function applyGraphBundleByMode(data, modeHint = "force") {
+    const mode = String(data?.layout_mode || modeHint || "force").trim().toLowerCase() === "som" ? "som" : "force";
+
     graphBundle = data;
-    fullGraphData = data.graph_data || { nodes: [], links: [] };
     groupDefaults = data.group_defaults || {};
 
-    graphNodeMap = {};
-    (fullGraphData.nodes || []).forEach((node) => {
-        graphNodeMap[node.id] = node;
-    });
+    if (mode === "som") {
+        somGraphData = data.graph_data || { nodes: [], links: [] };
+        if (!Array.isArray(somGraphData.nodes) || somGraphData.nodes.length === 0) {
+            alert("No nodes returned from SOM planning.");
+            return false;
+        }
 
-    if (!fullGraphData.nodes || fullGraphData.nodes.length === 0) {
+        if (Number(data.success_count || 0) < Number(data.target_count || 50)) {
+            alert(`Generated ${data.success_count} valid JSON plans (target ${data.target_count || 50}).`);
+        }
+
+        setGraphLayoutMode("som");
+        switchTab(3);
+        return true;
+    }
+
+    forceGraphData = data.graph_data || { nodes: [], links: [] };
+    if (!Array.isArray(forceGraphData.nodes) || forceGraphData.nodes.length === 0) {
         alert("No nodes returned from force-graph planning.");
         return false;
     }
@@ -256,9 +599,13 @@ function applyForceGraphBundle(data) {
         alert(`Generated ${data.success_count} valid JSON plans (target ${data.target_count || 50}).`);
     }
 
-    initForceExplorer();
+    setGraphLayoutMode("force");
     switchTab(3);
     return true;
+}
+
+function applyForceGraphBundle(data) {
+    return applyGraphBundleByMode(data, "force");
 }
 
 function switchTab(index) {
@@ -297,6 +644,301 @@ function renderSchema(meta) {
 
 function getNodeById(nodeId) {
     return graphNodeMap[nodeId] || null;
+}
+
+function hexPoints(size) {
+    const points = [];
+    for (let i = 0; i < 6; i += 1) {
+        const angleRad = (Math.PI / 180) * (60 * i - 30);
+        points.push(`${size * Math.cos(angleRad)},${size * Math.sin(angleRad)}`);
+    }
+    return points.join(" ");
+}
+
+function getSomCurrentLayer() {
+    if (!somPhases.length) return null;
+    const safeIndex = Math.min(somStep, somPhases.length - 1);
+    return somPhases[safeIndex];
+}
+
+function getSomLinkBetween(aId, bId) {
+    const key = [String(aId || ""), String(bId || "")].sort().join("||");
+    return somLinkLookup[key] || null;
+}
+
+function getSomNodeColor(elements) {
+    if (!Array.isArray(elements) || elements.length === 0) return somEmptyColor;
+    const elem = elements[0];
+    const interpolator = somCategoryColorScales[elem.category] || d3.interpolateGreys;
+    const maxCount = Number(somSelectionData?.maxCount || 1);
+    const count = Number(elem.count || elem.val || 1);
+    const normalized = 0.3 + 0.7 * (count / maxCount);
+    return interpolator(normalized);
+}
+
+function updateSomActionButtons() {
+    const btnNext = document.getElementById("btnForceNext");
+    const btnGenerate = document.getElementById("btnForceGenerate");
+    if (btnNext) btnNext.style.display = "none";
+    if (btnGenerate) btnGenerate.style.display = somStep >= somPhases.length ? "inline-block" : "none";
+}
+
+function renderSomStep() {
+    updateSomActionButtons();
+    renderSomGraph();
+    renderDesignSummary();
+}
+
+function renderSomGraph() {
+    const container = document.getElementById("forceGraphContainer");
+    if (!container) return;
+
+    container.innerHTML = "";
+    if (typeof d3 === "undefined") {
+        container.innerHTML = '<div class="center-msg">D3 failed to load. Upload/analysis still works.</div>';
+        return;
+    }
+
+    if (!somSelectionData || !Array.isArray(somSelectionData.cells) || somSelectionData.cells.length === 0) {
+        container.innerHTML = '<div class="center-msg">No SOM nodes available</div>';
+        return;
+    }
+
+    const tooltip = document.createElement("div");
+    tooltip.className = "som-tooltip";
+    tooltip.style.visibility = "hidden";
+    container.appendChild(tooltip);
+
+    const svgRoot = d3.select(container).append("svg")
+        .attr("width", "100%")
+        .attr("height", "100%");
+
+    const zoomRoot = svgRoot.append("g");
+    svgRoot.call(
+        d3.zoom()
+            .scaleExtent([0.3, 6])
+            .on("zoom", (event) => {
+                zoomRoot.attr("transform", event.transform);
+            })
+    );
+
+    const g = zoomRoot.append("g")
+        .attr("transform", "translate(100, 100) scale(0.8)");
+
+    const linkLayer = g.append("g").attr("class", "links-layer").style("pointer-events", "none");
+    const hexLayer = g.append("g").attr("class", "hex-layer");
+    const cells = somSelectionData.cells;
+
+    const hexGroups = hexLayer.selectAll(".hex-group")
+        .data(cells)
+        .enter()
+        .append("g")
+        .attr("class", "hex-group")
+        .attr("transform", (d) => `translate(${d.cx}, ${d.cy})`)
+        .on("mouseover", (event, d) => {
+            if (!Array.isArray(d.elements) || d.elements.length === 0) return;
+            const elem = d.elements[0];
+            const currentLayer = getSomCurrentLayer();
+            const degree = somCurrentActiveDegree[elem.id] || 0;
+            const isCurrent = elem.layer === currentLayer;
+
+            tooltip.innerHTML = `
+                <div style="${!isCurrent ? "opacity:0.5;" : ""}">
+                    <b style="color:${somBadgeColors[elem.category] || "#2c3e50"};">[${escapeHtml(elem.category)}]</b>
+                    ${escapeHtml(elem.name)}
+                    <span style="font-size:11px; color:#c0392b; font-weight:bold; float:right;">频次: ${escapeHtml(elem.count)}</span>
+                    ${elem.desc ? `<br><span style="font-size:11px; color:#666; display:block; margin-top:6px;">${escapeHtml(elem.desc)}</span>` : ""}
+                    ${degree > 0 ? `<span style="font-size:11px; color:#2980b9; display:block; margin-top:6px; font-weight:bold;">当前跨层连线数: ${degree}</span>` : ""}
+                </div>
+            `;
+            tooltip.style.visibility = "visible";
+
+            const rect = container.getBoundingClientRect();
+            tooltip.style.left = `${event.clientX - rect.left + 15}px`;
+            tooltip.style.top = `${event.clientY - rect.top + 15}px`;
+
+            if (degree > 0) {
+                linkLayer.raise();
+                linkLayer.selectAll(".active-link")
+                    .transition()
+                    .duration(200)
+                    .attr("stroke-opacity", (linkData) => {
+                        const sourceId = linkData?.source?.elements?.[0]?.id;
+                        const targetId = linkData?.target?.elements?.[0]?.id;
+                        if (sourceId === elem.id || targetId === elem.id) return 1;
+                        return 0.05;
+                    })
+                    .attr("stroke-width", (linkData) => {
+                        const baseWidth = somLinkThicknessScale ? somLinkThicknessScale(Number(linkData.lift || 0)) : 1.5;
+                        const sourceId = linkData?.source?.elements?.[0]?.id;
+                        const targetId = linkData?.target?.elements?.[0]?.id;
+                        return (sourceId === elem.id || targetId === elem.id) ? (baseWidth * 1.8) : baseWidth;
+                    });
+            }
+        })
+        .on("mousemove", (event) => {
+            if (tooltip.style.visibility !== "visible") return;
+            const rect = container.getBoundingClientRect();
+            tooltip.style.left = `${event.clientX - rect.left + 15}px`;
+            tooltip.style.top = `${event.clientY - rect.top + 15}px`;
+        })
+        .on("mouseout", () => {
+            tooltip.style.visibility = "hidden";
+            hexLayer.raise();
+            linkLayer.selectAll(".active-link")
+                .transition()
+                .duration(200)
+                .attr("stroke-opacity", 0.5)
+                .attr("stroke-width", (d) => (somLinkThicknessScale ? somLinkThicknessScale(Number(d.lift || 0)) : 1.5));
+        })
+        .on("click", (_, d) => {
+            if (!Array.isArray(d.elements) || d.elements.length === 0) return;
+            const elem = d.elements[0];
+            const currentLayer = getSomCurrentLayer();
+            if (!currentLayer || elem.layer !== currentLayer) return;
+
+            if (!somSelections[currentLayer]) somSelections[currentLayer] = {};
+            somSelections[currentLayer][elem.category] = elem;
+            syncSelectedNodesFromSomSelections();
+
+            if (elem.group_id === "color_scheme") {
+                selectedColorNodeId = elem.id;
+                selectedPaletteMeta = null;
+                const generateBtn = document.getElementById("btnGeneratePaletteFromNode");
+                if (generateBtn) generateBtn.disabled = false;
+                const hint = document.getElementById("paletteNodeHint");
+                if (hint) {
+                    const desc = elem.desc ? ` | ${elem.desc}` : "";
+                    hint.textContent = `${elem.name}${desc}`;
+                }
+                generatePaletteFromSelectedColorNode({ reuseImage: false });
+            }
+
+            const requiredCategories = somRequirements[currentLayer] || [];
+            const selectedCategories = Object.keys(somSelections[currentLayer] || {});
+            if (requiredCategories.length > 0 && requiredCategories.every((cat) => selectedCategories.includes(cat))) {
+                if (somStep < somPhases.length - 1) {
+                    somStep += 1;
+                } else {
+                    somStep = somPhases.length;
+                    setTimeout(() => {
+                        alert("信息图装配完成！全层级结构已就绪。");
+                    }, 300);
+                }
+            }
+
+            renderSomStep();
+        });
+
+    hexGroups.append("polygon")
+        .attr("class", "hex")
+        .attr("points", hexPoints(somHexSize))
+        .attr("fill", (d) => getSomNodeColor(d.elements))
+        .attr("opacity", (d) => (d.elements.length === 0 ? 0.6 : 1));
+
+    hexGroups.append("circle")
+        .attr("class", "contact-dot")
+        .attr("cx", 0)
+        .attr("cy", 0)
+        .attr("r", 0)
+        .attr("fill", "#fff")
+        .attr("stroke", "#2c3e50")
+        .attr("stroke-width", 1.5)
+        .attr("opacity", 0)
+        .style("pointer-events", "none");
+
+    const currentLayer = getSomCurrentLayer();
+    const activeLinks = [];
+    somCurrentActiveDegree = {};
+
+    if (somStep > 0 && somStep <= somPhases.length) {
+        let prevSelected = [];
+        for (let i = 0; i < somStep; i += 1) {
+            const layer = somPhases[i];
+            if (!layer) continue;
+            prevSelected = prevSelected.concat(Object.values(somSelections[layer] || {}));
+        }
+
+        cells.forEach((cell) => {
+            if (!Array.isArray(cell.elements) || cell.elements.length === 0) return;
+            const elem = cell.elements[0];
+            if (elem.layer !== currentLayer) return;
+
+            prevSelected.forEach((sourceElem) => {
+                const link = getSomLinkBetween(sourceElem.id, elem.id);
+                if (!link) return;
+                const sourceCell = somNodeByElementId[sourceElem.id];
+                if (!sourceCell) return;
+
+                activeLinks.push({
+                    id: `${sourceElem.id}-${elem.id}`,
+                    source: sourceCell,
+                    target: cell,
+                    lift: Number(link.lift || 0),
+                    category: elem.category,
+                });
+                somCurrentActiveDegree[sourceElem.id] = (somCurrentActiveDegree[sourceElem.id] || 0) + 1;
+                somCurrentActiveDegree[elem.id] = (somCurrentActiveDegree[elem.id] || 0) + 1;
+            });
+        });
+    }
+
+    const paths = linkLayer.selectAll(".active-link").data(activeLinks, (d) => d.id);
+    paths.exit().remove();
+    paths.enter()
+        .append("path")
+        .attr("class", "active-link link")
+        .merge(paths)
+        .attr("stroke", (d) => somBadgeColors[d.category] || "#64748b")
+        .attr("stroke-width", (d) => (somLinkThicknessScale ? somLinkThicknessScale(Number(d.lift || 0)) : 1.5))
+        .attr("stroke-opacity", 0.5)
+        .attr(
+            "d",
+            (d) => `M ${d.source.cx} ${d.source.cy} Q ${(d.source.cx + d.target.cx) / 2} ${((d.source.cy + d.target.cy) / 2) - 50} ${d.target.cx} ${d.target.cy}`
+        );
+
+    hexGroups.attr("class", (d) => {
+        const classes = ["hex-group"];
+        if (!Array.isArray(d.elements) || d.elements.length === 0) {
+            classes.push("dimmed");
+            return classes.join(" ");
+        }
+
+        const elem = d.elements[0];
+        const selectedInLayer = somSelections[elem.layer] || {};
+        const selectedNode = selectedInLayer[elem.category];
+        const isSelected = Boolean(selectedNode && selectedNode.id === elem.id);
+        if (isSelected) classes.push("selected-node");
+
+        if (elem.layer !== currentLayer && !isSelected) classes.push("dimmed");
+        if ((somCurrentActiveDegree[elem.id] || 0) > 0 && !isSelected && elem.layer === currentLayer) classes.push("highlight");
+        return classes.join(" ");
+    });
+
+    hexGroups.select(".contact-dot")
+        .transition()
+        .duration(300)
+        .attr("r", (d) => {
+            if (!Array.isArray(d.elements) || d.elements.length === 0) return 0;
+            const elem = d.elements[0];
+            if (elem.layer !== currentLayer) return 0;
+            const degree = somCurrentActiveDegree[elem.id] || 0;
+            return degree > 0 ? 2 + degree * 2 : 0;
+        })
+        .attr("opacity", (d) => {
+            if (!Array.isArray(d.elements) || d.elements.length === 0) return 0;
+            const elem = d.elements[0];
+            if (elem.layer !== currentLayer) return 0;
+            return (somCurrentActiveDegree[elem.id] || 0) > 0 ? 1 : 0;
+        });
+}
+
+function resetSomFlow() {
+    if (!somGraphData) return;
+    prepareSomSelectionData();
+    initializeSomSelections();
+    clearPaletteSelectionState();
+    renderSomStep();
 }
 
 function isNodeSelected(nodeId) {
@@ -345,6 +987,7 @@ function removeSelectedNodeById(nodeId) {
 }
 
 function toggleForceNodeSelection(node) {
+    if (graphLayoutMode !== "force") return;
     if (!node || layerOrder[forceStep] !== node.layer) return;
 
     const existed = isNodeSelected(node.id);
@@ -439,9 +1082,12 @@ function computeActiveGraphData() {
 }
 
 function renderForceGraph(nodes, links) {
+    if (graphLayoutMode !== "force") return;
     const container = document.getElementById("forceGraphContainer");
     if (!container) return;
 
+    setGraphContainerModeClass();
+    hideSomTooltip();
     container.innerHTML = "";
 
     if (typeof d3 === "undefined") {
@@ -561,6 +1207,7 @@ function renderForceGraph(nodes, links) {
 }
 
 function updateForceStepUI() {
+    if (graphLayoutMode !== "force") return;
     const chips = document.querySelectorAll(".force-step-chip");
     chips.forEach((chip, index) => {
         chip.classList.remove("active", "done");
@@ -581,12 +1228,18 @@ function updateForceStepUI() {
 }
 
 function renderForceStep() {
+    if (graphLayoutMode !== "force") return;
     updateForceStepUI();
     const data = computeActiveGraphData();
     renderForceGraph(data.nodes, data.links);
 }
 
 function initForceExplorer() {
+    if (!forceGraphData || !Array.isArray(forceGraphData.nodes) || !forceGraphData.nodes.length) {
+        renderGraphPlaceholder();
+        return;
+    }
+    useForceGraphAsActiveData();
     forceStep = 0;
     selectedNodes = [];
     clearPaletteSelectionState();
@@ -595,6 +1248,7 @@ function initForceExplorer() {
 }
 
 function nextForceStep() {
+    if (graphLayoutMode === "som") return;
     if (forceStep >= layerOrder.length) return;
 
     const currentLayer = layerOrder[forceStep];
@@ -610,7 +1264,11 @@ function nextForceStep() {
 }
 
 function resetForceFlow() {
-    if (!fullGraphData) return;
+    if (graphLayoutMode === "som") {
+        resetSomFlow();
+        return;
+    }
+    if (!forceGraphData) return;
     initForceExplorer();
 }
 
@@ -686,7 +1344,9 @@ function renderDesignSummary() {
     if (!container) return;
 
     if (!fullGraphData) {
-        container.innerHTML = "Build force graph and select nodes first";
+        container.innerHTML = graphLayoutMode === "som"
+            ? "Build SOM graph and select nodes first"
+            : "Build force graph and select nodes first";
         return;
     }
 
@@ -733,7 +1393,7 @@ function renderDesignSummary() {
 
 async function generateFinalPosterFromForceGraph() {
     if (!fullGraphData) {
-        alert("Build force graph first.");
+        alert(`Build ${getGraphModeLabel(graphLayoutMode)} first.`);
         return;
     }
 
@@ -1092,6 +1752,7 @@ async function runAnalysis() {
             vegaEmbed("#vis", spec, { actions: false, renderer: "canvas" }).catch(console.warn);
 
             document.getElementById("btnGenInfo").style.display = "block";
+            updateGraphActionLabels();
             switchTab(1);
         }
     } catch (e) {
@@ -1108,10 +1769,11 @@ async function buildForceGraphPlan() {
         return;
     }
 
+    const mode = graphLayoutMode === "som" ? "som" : "force";
     stopForceGraphPolling();
     toggleLoading("loading-info", true);
     document.getElementById("btnGenInfo").disabled = true;
-    setForceProgress(1, "Starting force-graph job...", true);
+    setForceProgress(1, `Starting ${getGraphModeLabel(mode)} job...`, true);
 
     try {
         const res = await fetch("/infographic/force_graph_plan/start", {
@@ -1123,12 +1785,13 @@ async function buildForceGraphPlan() {
                 analysis_result: currentAnalysisAnswer,
                 chart_source: currentChartData,
                 sample_count: 50,
+                layout_mode: mode,
             }),
         });
         const data = await res.json();
 
         if (data.status !== "success") {
-            alert(data.error || "Force graph generation failed");
+            alert(data.error || `${getGraphModeLabel(mode)} generation failed`);
             toggleLoading("loading-info", false);
             document.getElementById("btnGenInfo").disabled = false;
             return;
@@ -1138,7 +1801,7 @@ async function buildForceGraphPlan() {
         forceGraphPollDelayMs = 2500;
         scheduleForceGraphPolling(300);
     } catch (e) {
-        alert("Force Graph Error: " + e);
+        alert(`${getGraphModeLabel(mode)} Error: ${e}`);
         setForceProgress(100, `Failed: ${e}`, true);
         toggleLoading("loading-info", false);
         document.getElementById("btnGenInfo").disabled = false;
@@ -1161,10 +1824,11 @@ async function buildForceGraphFromUploadedJson() {
         return;
     }
 
+    const mode = graphLayoutMode === "som" ? "som" : "force";
     stopForceGraphPolling();
     forceGraphJobId = null;
     toggleLoading("loading-info-json", true);
-    setForceProgress(8, `Uploading JSON: ${fileInput.files[0].name}`, true);
+    setForceProgress(8, `Uploading JSON for ${getGraphModeLabel(mode)}: ${fileInput.files[0].name}`, true);
 
     const uploadBtn = document.getElementById("btnGenInfoFromJson");
     const buildBtn = document.getElementById("btnGenInfo");
@@ -1174,6 +1838,7 @@ async function buildForceGraphFromUploadedJson() {
     try {
         const formData = new FormData();
         formData.append("file", fileInput.files[0]);
+        formData.append("layout_mode", mode);
 
         const res = await fetch("/infographic/force_graph_plan/upload_json", {
             method: "POST",
@@ -1188,12 +1853,12 @@ async function buildForceGraphFromUploadedJson() {
             return;
         }
 
-        const ok = applyForceGraphBundle(data);
+        const ok = applyGraphBundleByMode(data, mode);
         const runCount = Number(data.target_count || 0);
         if (ok) {
             const doneMsg = runCount > 0
-                ? `Force graph built from uploaded JSON (${runCount} runs).`
-                : "Force graph built from uploaded JSON.";
+                ? `${getGraphModeLabel(mode)} built from uploaded JSON (${runCount} runs).`
+                : `${getGraphModeLabel(mode)} built from uploaded JSON.`;
             setForceProgress(100, doneMsg, true);
         } else {
             setForceProgress(100, "Uploaded JSON parsed, but no graph nodes.", true);
@@ -1209,6 +1874,13 @@ async function buildForceGraphFromUploadedJson() {
 }
 
 function bindEvents() {
+    document.getElementById("btnLayoutForce").addEventListener("click", () => {
+        setGraphLayoutMode("force");
+    });
+    document.getElementById("btnLayoutSom").addEventListener("click", () => {
+        setGraphLayoutMode("som");
+    });
+
     document.getElementById("btnUpload").addEventListener("click", uploadCsv);
     document.getElementById("btnAnalyze").addEventListener("click", runAnalysis);
     document.getElementById("btnGenInfo").addEventListener("click", buildForceGraphPlan);
@@ -1221,18 +1893,23 @@ function bindEvents() {
 
     document.getElementById("btnGeneratePaletteFromNode").addEventListener("click", () => {
         if (!selectedColorNodeId) {
-            alert("Select a color scheme node in force graph first.");
+            alert(`Select a color scheme node in ${getGraphModeLabel(graphLayoutMode)} first.`);
             return;
         }
         generatePaletteFromSelectedColorNode({ reuseImage: true });
     });
 
     window.addEventListener("resize", () => {
-        if (fullGraphData) renderForceStep();
+        if (graphLayoutMode === "som") {
+            if (somGraphData) renderSomStep();
+            return;
+        }
+        if (forceGraphData) renderForceStep();
     });
 
     syncForceJsonUploadState();
 }
 
 bindEvents();
+setGraphLayoutMode("force", { preserveSelection: true, preservePalette: true });
 renderGalleryUI();

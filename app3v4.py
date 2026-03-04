@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 import os
 import sys
 import json
@@ -57,6 +57,10 @@ def _validate_force_graph_request(data):
     except (TypeError, ValueError):
         return "sample_count must be an integer", None
 
+    layout_mode = str(payload.get("layout_mode", "force")).strip().lower()
+    if layout_mode not in {"force", "som"}:
+        return "layout_mode must be either 'force' or 'som'", None
+
     max_sample = int(getattr(infographic_logic, "FORCE_GRAPH_MAX_SAMPLE_COUNT", 80))
     if sample_count < 1 or sample_count > max_sample:
         return f"sample_count must be between 1 and {max_sample}", None
@@ -67,6 +71,7 @@ def _validate_force_graph_request(data):
         "analysis_result": payload.get("analysis_result"),
         "chart_source": chart_source,
         "sample_count": sample_count,
+        "layout_mode": layout_mode,
     }
     return None, normalized
 
@@ -157,6 +162,7 @@ def get_force_graph_plan():
             analysis_result=normalized["analysis_result"],
             chart_json=normalized["chart_source"],
             sample_count=normalized["sample_count"],
+            layout_mode=normalized["layout_mode"],
         )
         return (
             jsonify(
@@ -165,6 +171,7 @@ def get_force_graph_plan():
                     "deprecated": True,
                     "message": "Use /infographic/force_graph_plan/start and poll /infographic/force_graph_plan/progress/<job_id>.",
                     "job_id": job_id,
+                    "layout_mode": normalized["layout_mode"],
                 }
             ),
             202,
@@ -188,8 +195,9 @@ def start_force_graph_plan_job():
             analysis_result=normalized["analysis_result"],
             chart_json=normalized["chart_source"],
             sample_count=normalized["sample_count"],
+            layout_mode=normalized["layout_mode"],
         )
-        return jsonify({"status": "success", "job_id": job_id})
+        return jsonify({"status": "success", "job_id": job_id, "layout_mode": normalized["layout_mode"]})
     except Exception as e:
         logger.error(f"Force Graph Plan Start Error: {e}")
         return jsonify({"status": "error", "error": str(e)}), 500
@@ -208,6 +216,7 @@ def get_force_graph_plan_progress(job_id):
             "job_status": job.get("status"),
             "message": job.get("message"),
             "progress": job.get("progress", 0),
+            "layout_mode": job.get("layout_mode", "force"),
             "target_count": job.get("target_count", 0),
             "attempted_count": job.get("attempted_count", 0),
             "max_attempts": job.get("max_attempts", 0),
@@ -230,22 +239,31 @@ def get_force_graph_plan_progress(job_id):
 def upload_force_graph_json():
     try:
         payload = None
+        layout_mode = "force"
 
         if "file" in request.files:
             upload_file = request.files["file"]
             if not upload_file or upload_file.filename == "":
                 return jsonify({"status": "error", "error": "No selected JSON file"}), 400
+            layout_mode = str(request.form.get("layout_mode", "force")).strip().lower()
 
             raw_text = upload_file.read().decode("utf-8-sig")
             payload = json.loads(raw_text)
         else:
             data = request.get_json(silent=True) or {}
+            layout_mode = str(data.get("layout_mode", "force")).strip().lower()
             payload = data.get("runs")
             if payload is None:
                 payload = data
 
+        if layout_mode not in {"force", "som"}:
+            return jsonify({"status": "error", "error": "layout_mode must be either 'force' or 'som'"}), 400
+
         raw_runs = infographic_logic.normalize_uploaded_runs_payload(payload)
-        bundle = infographic_logic.generate_force_graph_bundle_from_runs(raw_runs)
+        if layout_mode == "som":
+            bundle = infographic_logic.generate_som_bundle_from_runs(raw_runs)
+        else:
+            bundle = infographic_logic.generate_force_graph_bundle_from_runs(raw_runs)
         return jsonify({"status": "success", **bundle})
     except json.JSONDecodeError:
         return jsonify({"status": "error", "error": "Invalid JSON format"}), 400

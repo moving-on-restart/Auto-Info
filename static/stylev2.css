@@ -8,6 +8,9 @@
             --text-main: #1f2937;
             --text-muted: #6b7280;
             --header-height: 50px;
+            --top-section-flex: 0.72;
+            --bottom-section-flex: 1.28;
+            --top-pane-min-height: 220px;
         }
 
         /* --- 鍏ㄥ眬閲嶇疆 --- */
@@ -37,7 +40,7 @@
             overflow-y: auto;
             display: flex;
             flex-direction: column;
-            justify-content: space-between;
+            justify-content: flex-start;
             gap: 16px;
         }
         .panel-content-steps::before {
@@ -83,6 +86,22 @@
         .panel-content-steps .step-container::before { display: none; }
 
         .input-group { margin-left: 26px; }
+        .step-chart-preview {
+            margin-top: 10px;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            overflow: hidden;
+            background: #f8fafc;
+        }
+        .step-chart-preview-title {
+            padding: 6px 10px;
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            color: #64748b;
+            background: #f1f5f9;
+            border-bottom: 1px solid #e5e7eb;
+        }
         textarea, input[type="text"], input[type="file"], select { width: 100%; padding: 8px; border: 1px solid var(--border-color); font-family: 'JetBrains Mono', monospace; font-size: 11px; margin-bottom: 8px; background: #fbfbfb; transition: border 0.2s; border-radius: 4px;}
         textarea:focus, input:focus, select:focus { border-color: var(--primary); background: #fff; }
 
@@ -174,7 +193,7 @@
             min-height: 0;
         }
         /* 涓婂崐閮ㄥ垎锛氭暟鎹垎鏋?*/
-        .viz-split { flex: 1; display: flex; gap: 15px; min-height: 0; }
+        .viz-split { flex: var(--top-section-flex); display: flex; gap: 15px; min-height: 0; }
         .viz-box {
             background: white;
             border: 1px solid var(--border-color);
@@ -197,7 +216,21 @@
         }
 
         /* 涓嬪崐閮ㄥ垎锛氬弬鑰冨浘鍍?*/
-        .ref-section { flex: 1; min-height: 0; display: flex; flex-direction: column; background: white; border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; }
+        #vis.step-chart-area {
+            height: 220px;
+            flex: 0 0 auto;
+            padding: 8px;
+            background: #ffffff;
+        }
+        #vis.step-chart-area .vega-embed,
+        #vis.step-chart-area .vega-embed > div,
+        #vis.step-chart-area canvas,
+        #vis.step-chart-area svg {
+            width: 100% !important;
+            height: 100% !important;
+        }
+        .ref-section { flex: var(--bottom-section-flex); min-height: 0; display: flex; flex-direction: column; background: white; border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; }
+        .viz-box { min-height: var(--top-pane-min-height); }
 
         /* 鐢诲竷涓庝氦浜?*/
         .canvas-container { position: relative; display: inline-block; line-height: 0; max-width: 100%; max-height: 100%; margin: auto; }
@@ -483,6 +516,50 @@
             gap: 10px;
         }
 
+        .graph-title-wrap {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+        }
+
+        .graph-layout-toggle {
+            display: inline-flex;
+            border: 1px solid #d1d5db;
+            border-radius: 999px;
+            overflow: hidden;
+            background: #fff;
+        }
+
+        .graph-layout-btn {
+            width: auto;
+            min-width: 56px;
+            margin: 0;
+            padding: 3px 10px;
+            border: none;
+            border-right: 1px solid #e5e7eb;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+            text-transform: none;
+            color: #6b7280;
+            background: #fff;
+        }
+
+        .graph-layout-btn:last-child {
+            border-right: none;
+        }
+
+        .graph-layout-btn:hover {
+            background: #f3f4f6;
+            color: #111827;
+        }
+
+        .graph-layout-btn.active {
+            background: #2563eb;
+            color: #fff;
+        }
+
         .force-actions {
             display: flex;
             gap: 8px;
@@ -540,6 +617,69 @@
             min-height: 0;
             background: #f1f5f9;
             position: relative;
+        }
+
+        /* SOM graph style: synced with app3/test/SOM/index.html */
+        .som-graph-container {
+            background: #ffffff;
+            overflow: hidden;
+        }
+
+        .som-graph-container .hex {
+            stroke: #fff;
+            stroke-width: 1.2px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .som-graph-container .hex:hover {
+            stroke: #333;
+            stroke-width: 2.5px;
+        }
+
+        .som-graph-container .link {
+            fill: none;
+            stroke-linecap: round;
+        }
+
+        .som-graph-container .dimmed {
+            opacity: 0.15;
+            filter: grayscale(100%);
+            pointer-events: none;
+        }
+
+        .som-graph-container .highlight {
+            opacity: 1;
+            filter: none;
+            stroke: #f1c40f;
+            stroke-width: 3px;
+        }
+
+        .som-graph-container .selected-node {
+            filter: drop-shadow(0px 0px 8px rgba(0, 0, 0, 0.8));
+            z-index: 100;
+        }
+
+        .som-graph-container .selected-node .hex {
+            stroke: #ef4444;
+            stroke-width: 1.6px;
+        }
+
+        .som-tooltip {
+            position: absolute;
+            text-align: left;
+            padding: 12px;
+            font-size: 13px;
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            pointer-events: none;
+            visibility: hidden;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+            z-index: 1000;
+            max-width: 280px;
+            line-height: 1.5;
+            color: #333;
         }
 
         .force-progress-panel {
