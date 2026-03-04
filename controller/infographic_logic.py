@@ -29,6 +29,8 @@ FORCE_GRAPH_MAX_WORKERS = 6
 _LAYER_ORDER = ["bottom_layer", "middle_layer", "top_layer"]
 _FORCE_LAYOUT_MODE = "force"
 _SOM_LAYOUT_MODE = "som"
+_APP3_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_RUNS_JSON_DIR = os.path.join(_APP3_BASE_DIR, "static", "json")
 _SOM_TEXT_MODEL_NAME = "shibing624/text2vec-base-chinese"
 _SOM_TEXT_MODEL = None
 _SOM_TEXT_MODEL_LOCK = threading.Lock()
@@ -44,10 +46,43 @@ _FORCE_GRAPH_JOBS = {}
 _FORCE_GRAPH_JOBS_LOCK = threading.Lock()
 _FORCE_GRAPH_JOB_TTL_SECONDS = 30 * 60
 
+os.makedirs(_RUNS_JSON_DIR, exist_ok=True)
+
 
 def _normalize_layout_mode(layout_mode):
     mode = str(layout_mode or _FORCE_LAYOUT_MODE).strip().lower()
     return _SOM_LAYOUT_MODE if mode == _SOM_LAYOUT_MODE else _FORCE_LAYOUT_MODE
+
+
+def _persist_sample_runs(raw_runs, layout_mode, target_count, query=None, job_id=None):
+    if not isinstance(raw_runs, list) or not raw_runs:
+        return None
+
+    normalized_mode = _normalize_layout_mode(layout_mode)
+    os.makedirs(_RUNS_JSON_DIR, exist_ok=True)
+
+    timestamp_compact = time.strftime("%Y%m%d_%H%M%S")
+    job_suffix = str(job_id).strip() if job_id else uuid.uuid4().hex[:8]
+    filename = f"{normalized_mode}_runs_{int(target_count or len(raw_runs))}_{timestamp_compact}_{job_suffix}.json"
+    absolute_path = os.path.join(_RUNS_JSON_DIR, filename)
+
+    payload = {
+        "layout_mode": normalized_mode,
+        "target_count": int(target_count or len(raw_runs)),
+        "actual_count": len(raw_runs),
+        "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "query": str(query or ""),
+        "runs": raw_runs,
+    }
+
+    with open(absolute_path, "w", encoding="utf-8") as fp:
+        json.dump(payload, fp, ensure_ascii=False, indent=2)
+
+    return {
+        "filename": filename,
+        "absolute_path": absolute_path,
+        "web_path": f"/static/json/{filename}",
+    }
 
 
 def _rgb_triplet_to_hex(color_triplet):
@@ -744,6 +779,8 @@ def _sample_runs_for_graph_generation(
     sample_count,
     progress_callback=None,
     mode_label="force-graph",
+    layout_mode=_FORCE_LAYOUT_MODE,
+    job_id=None,
 ):
     target_count = _normalize_sample_count(sample_count)
     if not query:
@@ -829,12 +866,25 @@ def _sample_runs_for_graph_generation(
     if not raw_runs:
         raise RuntimeError(f"All {mode_label} plan generations failed.")
 
+    saved_runs_json = None
+    try:
+        saved_runs_json = _persist_sample_runs(
+            raw_runs=raw_runs,
+            layout_mode=layout_mode,
+            target_count=target_count,
+            query=query,
+            job_id=job_id,
+        )
+    except Exception as e:
+        logger.warning(f"Failed to persist sampled runs JSON: {e}")
+
     return {
         "target_count": target_count,
         "raw_runs": raw_runs,
         "failed_count": failed_count,
         "completed_attempts": completed_attempts,
         "max_attempts": max_attempts,
+        "saved_runs_json": saved_runs_json,
     }
 
 
@@ -845,6 +895,7 @@ def generate_force_graph_bundle(
     chart_json,
     sample_count=FORCE_GRAPH_DEFAULT_SAMPLE_COUNT,
     progress_callback=None,
+    job_id=None,
 ):
     sample_result = _sample_runs_for_graph_generation(
         description=description,
@@ -854,6 +905,8 @@ def generate_force_graph_bundle(
         sample_count=sample_count,
         progress_callback=progress_callback,
         mode_label="force-graph",
+        layout_mode=_FORCE_LAYOUT_MODE,
+        job_id=job_id,
     )
 
     raw_runs = sample_result["raw_runs"]
@@ -861,6 +914,7 @@ def generate_force_graph_bundle(
     failed_count = sample_result["failed_count"]
     completed_attempts = sample_result["completed_attempts"]
     max_attempts = sample_result["max_attempts"]
+    saved_runs_json = sample_result.get("saved_runs_json")
 
     if callable(progress_callback):
         progress_callback(
@@ -888,6 +942,7 @@ def generate_force_graph_bundle(
         "graph_data": graph_data,
         "group_defaults": group_defaults,
         "layout_mode": _FORCE_LAYOUT_MODE,
+        "saved_runs_json": saved_runs_json,
     }
 
     if callable(progress_callback):
@@ -914,6 +969,7 @@ def generate_som_bundle(
     chart_json,
     sample_count=FORCE_GRAPH_DEFAULT_SAMPLE_COUNT,
     progress_callback=None,
+    job_id=None,
 ):
     sample_result = _sample_runs_for_graph_generation(
         description=description,
@@ -923,6 +979,8 @@ def generate_som_bundle(
         sample_count=sample_count,
         progress_callback=progress_callback,
         mode_label="som-graph",
+        layout_mode=_SOM_LAYOUT_MODE,
+        job_id=job_id,
     )
 
     raw_runs = sample_result["raw_runs"]
@@ -930,6 +988,7 @@ def generate_som_bundle(
     failed_count = sample_result["failed_count"]
     completed_attempts = sample_result["completed_attempts"]
     max_attempts = sample_result["max_attempts"]
+    saved_runs_json = sample_result.get("saved_runs_json")
 
     if callable(progress_callback):
         progress_callback(
@@ -966,6 +1025,7 @@ def generate_som_bundle(
         },
         "group_defaults": group_defaults,
         "layout_mode": _SOM_LAYOUT_MODE,
+        "saved_runs_json": saved_runs_json,
     }
 
     if callable(progress_callback):
@@ -1013,6 +1073,7 @@ def _run_force_graph_job(job_id, description, query, analysis_result, chart_json
                 chart_json=chart_json,
                 sample_count=sample_count,
                 progress_callback=on_progress,
+                job_id=job_id,
             )
         else:
             bundle = generate_force_graph_bundle(
@@ -1022,6 +1083,7 @@ def _run_force_graph_job(job_id, description, query, analysis_result, chart_json
                 chart_json=chart_json,
                 sample_count=sample_count,
                 progress_callback=on_progress,
+                job_id=job_id,
             )
 
         _update_force_graph_job(
