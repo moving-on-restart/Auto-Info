@@ -60,10 +60,15 @@
                 <div class="step-container">
                     <div class="step-label"><div class="step-dot">4</div><span>Infographic Build</span></div>
                     <div class="input-group">
-                        <button id="btnGenInfo" style="margin-top:5px; color:var(--primary); display:none;">Build Force Graph (50 JSON)</button>
+                        <div class="random-generate-row">
+                            <div class="random-count-label">N</div>
+                            <input type="number" id="forceSampleCountInput" class="random-count-input" min="1" max="150" step="1" value="100">
+                            <button id="btnUseRecommendedCount" type="button" class="random-generate-btn">Use 100 (Recommended)</button>
+                        </div>
+                        <button id="btnGenInfo" style="margin-top:5px; color:var(--primary); display:none;">Build Force Graph (100 JSON)</button>
                         <input type="file" id="forceJsonInput" accept=".json,application/json" style="margin-top:8px;">
                         <button id="btnGenInfoFromJson" style="margin-top:5px; color:#0f766e;" disabled>Build Force Graph From Uploaded JSON</button>
-                        <div id="loading-info" class="loader">GENERATING 50 PLANS</div>
+                        <div id="loading-info" class="loader">GENERATING PLANS</div>
                         <div id="loading-info-json" class="loader">PARSING UPLOADED JSON</div>
                     </div>
                 </div>
@@ -106,7 +111,7 @@
                 </div>
 
                 <div id="forceGraphContainer" class="force-graph-container">
-                    <div class="center-msg">Click "Build Force Graph (50 JSON)" to start</div>
+                    <div class="center-msg">Click "Build Force Graph (100 JSON)" to start</div>
                 </div>
 
                 <div id="forceProgressPanel" class="force-progress-panel" style="display:none;">

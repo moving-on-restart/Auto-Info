@@ -63,6 +63,9 @@ let forceGraphProgressTimer = null;
 let forceGraphPollingInFlight = false;
 let forceGraphLastProgress = -1;
 let forceGraphPollDelayMs = 3500;
+const RECOMMENDED_FORCE_SAMPLE_COUNT = 100;
+const FORCE_SAMPLE_COUNT_FALLBACK_MIN = 1;
+const FORCE_SAMPLE_COUNT_FALLBACK_MAX = 150;
 
 let colorScale = null;
 
@@ -94,9 +97,43 @@ function getGraphModeLabel(mode) {
     return mode === "som" ? "SOM Graph" : "Force Graph";
 }
 
+function getForceSampleCountLimits() {
+    const input = document.getElementById("forceSampleCountInput");
+    const minValue = Number.parseInt(input?.min, 10);
+    const maxValue = Number.parseInt(input?.max, 10);
+    return {
+        min: Number.isInteger(minValue) ? minValue : FORCE_SAMPLE_COUNT_FALLBACK_MIN,
+        max: Number.isInteger(maxValue) ? maxValue : FORCE_SAMPLE_COUNT_FALLBACK_MAX,
+    };
+}
+
+function getRequestedSampleCount() {
+    const input = document.getElementById("forceSampleCountInput");
+    const limits = getForceSampleCountLimits();
+
+    if (!input) {
+        return Math.max(limits.min, Math.min(limits.max, RECOMMENDED_FORCE_SAMPLE_COUNT));
+    }
+
+    const parsed = Number.parseInt(String(input.value || "").trim(), 10);
+    const fallback = Math.max(limits.min, Math.min(limits.max, RECOMMENDED_FORCE_SAMPLE_COUNT));
+    const normalized = Number.isInteger(parsed) ? parsed : fallback;
+    const clamped = Math.max(limits.min, Math.min(limits.max, normalized));
+
+    if (String(clamped) !== String(input.value)) {
+        input.value = String(clamped);
+    }
+    return clamped;
+}
+
 function updateGraphActionLabels() {
+    const sampleCount = getRequestedSampleCount();
     const buildBtn = document.getElementById("btnGenInfo");
-    if (buildBtn) buildBtn.textContent = graphLayoutMode === "som" ? "Build SOM Graph (50 JSON)" : "Build Force Graph (50 JSON)";
+    if (buildBtn) {
+        buildBtn.textContent = graphLayoutMode === "som"
+            ? `Build SOM Graph (${sampleCount} JSON)`
+            : `Build Force Graph (${sampleCount} JSON)`;
+    }
 
     const uploadBuildBtn = document.getElementById("btnGenInfoFromJson");
     if (uploadBuildBtn) {
@@ -129,10 +166,11 @@ function renderGraphPlaceholder() {
     hideForceNodeTooltip();
     hideSomTooltip();
     setGraphContainerModeClass();
+    const sampleCount = getRequestedSampleCount();
     if (graphLayoutMode === "som") {
-        container.innerHTML = '<div class="center-msg">Click "Build SOM Graph (50 JSON)" to start</div>';
+        container.innerHTML = `<div class="center-msg">Click "Build SOM Graph (${sampleCount} JSON)" to start</div>`;
     } else {
-        container.innerHTML = '<div class="center-msg">Click "Build Force Graph (50 JSON)" to start</div>';
+        container.innerHTML = `<div class="center-msg">Click "Build Force Graph (${sampleCount} JSON)" to start</div>`;
     }
 }
 
@@ -1770,10 +1808,13 @@ async function buildForceGraphPlan() {
     }
 
     const mode = graphLayoutMode === "som" ? "som" : "force";
+    const sampleCount = getRequestedSampleCount();
     stopForceGraphPolling();
     toggleLoading("loading-info", true);
     document.getElementById("btnGenInfo").disabled = true;
-    setForceProgress(1, `Starting ${getGraphModeLabel(mode)} job...`, true);
+    const loadingInfo = document.getElementById("loading-info");
+    if (loadingInfo) loadingInfo.textContent = `GENERATING ${sampleCount} PLANS`;
+    setForceProgress(1, `Starting ${getGraphModeLabel(mode)} job (${sampleCount} runs)...`, true);
 
     try {
         const res = await fetch("/infographic/force_graph_plan/start", {
@@ -1784,7 +1825,7 @@ async function buildForceGraphPlan() {
                 query: document.getElementById("queryInput").value,
                 analysis_result: currentAnalysisAnswer,
                 chart_source: currentChartData,
-                sample_count: 50,
+                sample_count: sampleCount,
                 layout_mode: mode,
             }),
         });
@@ -1886,6 +1927,28 @@ function bindEvents() {
     document.getElementById("btnGenInfo").addEventListener("click", buildForceGraphPlan);
     document.getElementById("btnGenInfoFromJson").addEventListener("click", buildForceGraphFromUploadedJson);
     document.getElementById("forceJsonInput").addEventListener("change", syncForceJsonUploadState);
+    const sampleInput = document.getElementById("forceSampleCountInput");
+    if (sampleInput) {
+        sampleInput.addEventListener("input", () => {
+            getRequestedSampleCount();
+            updateGraphActionLabels();
+        });
+        sampleInput.addEventListener("change", () => {
+            getRequestedSampleCount();
+            updateGraphActionLabels();
+        });
+    }
+    const recommendedBtn = document.getElementById("btnUseRecommendedCount");
+    if (recommendedBtn) {
+        recommendedBtn.addEventListener("click", () => {
+            const input = document.getElementById("forceSampleCountInput");
+            if (!input) return;
+            const limits = getForceSampleCountLimits();
+            const recommended = Math.max(limits.min, Math.min(limits.max, RECOMMENDED_FORCE_SAMPLE_COUNT));
+            input.value = String(recommended);
+            updateGraphActionLabels();
+        });
+    }
 
     document.getElementById("btnForceReset").addEventListener("click", resetForceFlow);
     document.getElementById("btnForceNext").addEventListener("click", nextForceStep);
@@ -1908,6 +1971,7 @@ function bindEvents() {
     });
 
     syncForceJsonUploadState();
+    updateGraphActionLabels();
 }
 
 bindEvents();

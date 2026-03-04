@@ -4,6 +4,7 @@ import os
 import copy
 import time
 import math
+import hashlib
 import concurrent.futures
 import threading
 import uuid
@@ -23,14 +24,15 @@ ASSETS_DIR = "static/generated_assets"
 os.makedirs(ASSETS_DIR, exist_ok=True)
 image_service = GeminiLangChainService(output_dir=ASSETS_DIR)
 
-FORCE_GRAPH_DEFAULT_SAMPLE_COUNT = 50
-FORCE_GRAPH_MAX_SAMPLE_COUNT = 80
+FORCE_GRAPH_DEFAULT_SAMPLE_COUNT = 100
+FORCE_GRAPH_MAX_SAMPLE_COUNT = 150
 FORCE_GRAPH_MAX_WORKERS = 6
 _LAYER_ORDER = ["bottom_layer", "middle_layer", "top_layer"]
 _FORCE_LAYOUT_MODE = "force"
 _SOM_LAYOUT_MODE = "som"
 _APP3_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _RUNS_JSON_DIR = os.path.join(_APP3_BASE_DIR, "static", "json")
+_RUNS_JSON_INDEX_FILE = os.path.join(_RUNS_JSON_DIR, "_runs_index.json")
 _SOM_TEXT_MODEL_NAME = "shibing624/text2vec-base-chinese"
 _SOM_TEXT_MODEL = None
 _SOM_TEXT_MODEL_LOCK = threading.Lock()
@@ -45,6 +47,7 @@ _SOM_LAYER_ORDER_PRIORITY = {
 _FORCE_GRAPH_JOBS = {}
 _FORCE_GRAPH_JOBS_LOCK = threading.Lock()
 _FORCE_GRAPH_JOB_TTL_SECONDS = 30 * 60
+_RUNS_JSON_INDEX_LOCK = threading.Lock()
 
 os.makedirs(_RUNS_JSON_DIR, exist_ok=True)
 
@@ -54,7 +57,120 @@ def _normalize_layout_mode(layout_mode):
     return _SOM_LAYOUT_MODE if mode == _SOM_LAYOUT_MODE else _FORCE_LAYOUT_MODE
 
 
-def _persist_sample_runs(raw_runs, layout_mode, target_count, query=None, job_id=None):
+def _build_runs_input_fingerprint(description, query, analysis_result, chart_json, sample_count, layout_mode):
+    payload = {
+        "layout_mode": _normalize_layout_mode(layout_mode),
+        "sample_count": int(_normalize_sample_count(sample_count)),
+        "description": str(description or ""),
+        "query": str(query or ""),
+        "analysis_result": analysis_result,
+        "chart_json": chart_json,
+    }
+    serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _load_runs_index_unlocked():
+    if not os.path.exists(_RUNS_JSON_INDEX_FILE):
+        return {}
+    try:
+        with open(_RUNS_JSON_INDEX_FILE, "r", encoding="utf-8") as fp:
+            payload = json.load(fp)
+        return payload if isinstance(payload, dict) else {}
+    except Exception as e:
+        logger.warning(f"Failed to read runs index JSON: {e}")
+        return {}
+
+
+def _write_runs_index_unlocked(index_payload):
+    tmp_path = f"{_RUNS_JSON_INDEX_FILE}.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as fp:
+        json.dump(index_payload, fp, ensure_ascii=False, indent=2)
+    os.replace(tmp_path, _RUNS_JSON_INDEX_FILE)
+
+
+def _register_runs_cache_entry(input_fingerprint, saved_info):
+    if not input_fingerprint or not isinstance(saved_info, dict):
+        return
+
+    fp_text = str(input_fingerprint).strip()
+    if not fp_text:
+        return
+
+    with _RUNS_JSON_INDEX_LOCK:
+        index_payload = _load_runs_index_unlocked()
+        history = index_payload.get(fp_text)
+        if not isinstance(history, list):
+            history = []
+
+        entry = {
+            "filename": str(saved_info.get("filename", "")).strip(),
+            "absolute_path": str(saved_info.get("absolute_path", "")).strip(),
+            "web_path": str(saved_info.get("web_path", "")).strip(),
+            "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        history.insert(0, entry)
+
+        deduped = []
+        seen_paths = set()
+        for item in history:
+            path_text = str(item.get("absolute_path", "")).strip()
+            if not path_text or path_text in seen_paths:
+                continue
+            seen_paths.add(path_text)
+            deduped.append(item)
+            if len(deduped) >= 10:
+                break
+
+        index_payload[fp_text] = deduped
+        _write_runs_index_unlocked(index_payload)
+
+
+def _load_cached_runs_by_fingerprint(input_fingerprint, expected_target_count=None):
+    fp_text = str(input_fingerprint or "").strip()
+    if not fp_text:
+        return None
+
+    with _RUNS_JSON_INDEX_LOCK:
+        index_payload = _load_runs_index_unlocked()
+        history = index_payload.get(fp_text)
+        if not isinstance(history, list):
+            return None
+        history_snapshot = list(history)
+
+    expected_count = int(expected_target_count or 0)
+    for item in history_snapshot:
+        absolute_path = str(item.get("absolute_path", "")).strip()
+        if not absolute_path or not os.path.exists(absolute_path):
+            continue
+
+        try:
+            with open(absolute_path, "r", encoding="utf-8") as fp:
+                payload = json.load(fp)
+        except Exception as e:
+            logger.warning(f"Failed to read cached runs JSON {absolute_path}: {e}")
+            continue
+
+        runs = payload.get("runs")
+        if not isinstance(runs, list) or not runs:
+            continue
+        if expected_count > 0 and len(runs) < expected_count:
+            continue
+
+        filename = str(item.get("filename", "")).strip() or os.path.basename(absolute_path)
+        web_path = str(item.get("web_path", "")).strip() or f"/static/json/{filename}"
+        return {
+            "raw_runs": runs,
+            "saved_runs_json": {
+                "filename": filename,
+                "absolute_path": absolute_path,
+                "web_path": web_path,
+            },
+        }
+    return None
+
+
+def _persist_sample_runs(raw_runs, layout_mode, target_count, query=None, job_id=None, input_fingerprint=None):
     if not isinstance(raw_runs, list) or not raw_runs:
         return None
 
@@ -72,17 +188,20 @@ def _persist_sample_runs(raw_runs, layout_mode, target_count, query=None, job_id
         "actual_count": len(raw_runs),
         "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "query": str(query or ""),
+        "input_fingerprint": str(input_fingerprint or ""),
         "runs": raw_runs,
     }
 
     with open(absolute_path, "w", encoding="utf-8") as fp:
         json.dump(payload, fp, ensure_ascii=False, indent=2)
 
-    return {
+    saved_info = {
         "filename": filename,
         "absolute_path": absolute_path,
         "web_path": f"/static/json/{filename}",
     }
+    _register_runs_cache_entry(input_fingerprint, saved_info)
+    return saved_info
 
 
 def _rgb_triplet_to_hex(color_triplet):
@@ -786,6 +905,45 @@ def _sample_runs_for_graph_generation(
     if not query:
         raise ValueError("Query is required for graph planning.")
 
+    normalized_mode = _normalize_layout_mode(layout_mode)
+    input_fingerprint = _build_runs_input_fingerprint(
+        description=description,
+        query=query,
+        analysis_result=analysis_result,
+        chart_json=chart_json,
+        sample_count=target_count,
+        layout_mode=normalized_mode,
+    )
+    cached_payload = _load_cached_runs_by_fingerprint(
+        input_fingerprint=input_fingerprint,
+        expected_target_count=target_count,
+    )
+    if cached_payload:
+        cached_runs = cached_payload["raw_runs"]
+        cached_attempts = len(cached_runs)
+        if callable(progress_callback):
+            progress_callback(
+                {
+                    "stage": "sampling",
+                    "progress": 90,
+                    "message": f"Loaded cached runs ({cached_attempts}) from JSON. Skipping regeneration.",
+                    "attempted_count": cached_attempts,
+                    "max_attempts": cached_attempts,
+                    "success_count": cached_attempts,
+                    "failed_count": 0,
+                    "target_count": target_count,
+                }
+            )
+        return {
+            "target_count": target_count,
+            "raw_runs": cached_runs,
+            "failed_count": 0,
+            "completed_attempts": cached_attempts,
+            "max_attempts": cached_attempts,
+            "saved_runs_json": cached_payload.get("saved_runs_json"),
+            "used_cached_runs": True,
+        }
+
     chart_str = json.dumps(chart_json, ensure_ascii=False) if isinstance(chart_json, dict) else "{}"
     if len(chart_str) > 4000:
         chart_str = chart_str[:4000] + "...(truncated)"
@@ -874,6 +1032,7 @@ def _sample_runs_for_graph_generation(
             target_count=target_count,
             query=query,
             job_id=job_id,
+            input_fingerprint=input_fingerprint,
         )
     except Exception as e:
         logger.warning(f"Failed to persist sampled runs JSON: {e}")
@@ -885,6 +1044,7 @@ def _sample_runs_for_graph_generation(
         "completed_attempts": completed_attempts,
         "max_attempts": max_attempts,
         "saved_runs_json": saved_runs_json,
+        "used_cached_runs": False,
     }
 
 
@@ -915,6 +1075,7 @@ def generate_force_graph_bundle(
     completed_attempts = sample_result["completed_attempts"]
     max_attempts = sample_result["max_attempts"]
     saved_runs_json = sample_result.get("saved_runs_json")
+    used_cached_runs = bool(sample_result.get("used_cached_runs"))
 
     if callable(progress_callback):
         progress_callback(
@@ -943,6 +1104,7 @@ def generate_force_graph_bundle(
         "group_defaults": group_defaults,
         "layout_mode": _FORCE_LAYOUT_MODE,
         "saved_runs_json": saved_runs_json,
+        "used_cached_runs": used_cached_runs,
     }
 
     if callable(progress_callback):
@@ -989,6 +1151,7 @@ def generate_som_bundle(
     completed_attempts = sample_result["completed_attempts"]
     max_attempts = sample_result["max_attempts"]
     saved_runs_json = sample_result.get("saved_runs_json")
+    used_cached_runs = bool(sample_result.get("used_cached_runs"))
 
     if callable(progress_callback):
         progress_callback(
@@ -1026,6 +1189,7 @@ def generate_som_bundle(
         "group_defaults": group_defaults,
         "layout_mode": _SOM_LAYOUT_MODE,
         "saved_runs_json": saved_runs_json,
+        "used_cached_runs": used_cached_runs,
     }
 
     if callable(progress_callback):
@@ -1086,11 +1250,12 @@ def _run_force_graph_job(job_id, description, query, analysis_result, chart_json
                 job_id=job_id,
             )
 
+        completion_message = "Completed (used cached JSON)" if bundle.get("used_cached_runs") else "Completed"
         _update_force_graph_job(
             job_id,
             status="completed",
             progress=100,
-            message="Completed",
+            message=completion_message,
             result=bundle,
             error=None,
             layout_mode=normalized_mode,

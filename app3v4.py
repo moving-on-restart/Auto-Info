@@ -51,7 +51,7 @@ def _validate_force_graph_request(data):
     if not isinstance(chart_source, dict):
         return "chart_source must be a JSON object", None
 
-    raw_sample_count = payload.get("sample_count", 50)
+    raw_sample_count = payload.get("sample_count", 100)
     try:
         sample_count = int(raw_sample_count)
     except (TypeError, ValueError):
@@ -61,7 +61,7 @@ def _validate_force_graph_request(data):
     if layout_mode not in {"force", "som"}:
         return "layout_mode must be either 'force' or 'som'", None
 
-    max_sample = int(getattr(infographic_logic, "FORCE_GRAPH_MAX_SAMPLE_COUNT", 80))
+    max_sample = int(getattr(infographic_logic, "FORCE_GRAPH_MAX_SAMPLE_COUNT", 150))
     if sample_count < 1 or sample_count > max_sample:
         return f"sample_count must be between 1 and {max_sample}", None
 
