@@ -11,6 +11,7 @@
             --top-section-flex: 0.72;
             --bottom-section-flex: 1.28;
             --top-pane-min-height: 220px;
+            --info-panel-width: clamp(200px, 20%, 300px);
         }
 
         /* --- 鍏ㄥ眬閲嶇疆 --- */
@@ -184,16 +185,25 @@
         .viewport {
             background: #f0f2f5;
             display: flex;
-            flex-direction: column;
+            flex-direction: row;
             overflow: hidden;
             padding: 15px;
             gap: 15px;
+            align-items: stretch;
 
             /* --- 鏂板 --- */
             min-height: 0;
         }
         /* 涓婂崐閮ㄥ垎锛氭暟鎹垎鏋?*/
-        .viz-split { flex: var(--top-section-flex); display: flex; gap: 15px; min-height: 0; }
+        .viz-split {
+            order: 2;
+            flex: 0 0 var(--info-panel-width);
+            max-width: var(--info-panel-width);
+            min-width: 240px;
+            display: flex;
+            gap: 15px;
+            min-height: 0;
+        }
         .viz-box {
             background: white;
             border: 1px solid var(--border-color);
@@ -229,7 +239,18 @@
             width: 100% !important;
             height: 100% !important;
         }
-        .ref-section { flex: var(--bottom-section-flex); min-height: 0; display: flex; flex-direction: column; background: white; border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; }
+        .ref-section {
+            order: 1;
+            flex: 1 1 auto;
+            min-width: 0;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            overflow: hidden;
+        }
         .viz-box { min-height: var(--top-pane-min-height); }
 
         /* 鐢诲竷涓庝氦浜?*/
@@ -485,13 +506,16 @@
             box-shadow: none;
             border-radius: 0;
             display: flex;
-            flex-direction: row;
-            min-height: 300px;
-            gap: 15px;
+            flex-direction: column;
+            min-height: 0;
+            height: 100%;
+            gap: 10px;
         }
 
         .gallery-img-container {
-            flex: 2;
+            flex: 0 0 auto;
+            min-height: 220px;
+            max-height: 58%;
             background: #fafafa;
             display: flex;
             justify-content: center;
@@ -501,11 +525,34 @@
             padding: 10px;
         }
 
+        .gallery-img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
         .gallery-info {
-            flex: 1;
+            flex: 1 1 auto;
+            min-height: 0;
             padding: 0;
             font-size: 10px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            border-top: 1px solid #eee;
+            padding-top: 8px;
+        }
+
+        .gallery-info-content {
+            flex: 1 1 auto;
+            min-height: 0;
             overflow-y: auto;
+            padding-right: 2px;
+        }
+
+        .gallery-info-actions {
+            flex: 0 0 auto;
+            margin-top: 10px;
         }
 
         /* Force graph area */
@@ -810,4 +857,22 @@
             color: #374151;
             margin-bottom: 6px;
             font-weight: 600;
+        }
+
+        @media (max-width: 1280px) {
+            .viewport {
+                flex-direction: column;
+            }
+
+            .viz-split {
+                order: 1;
+                flex: var(--top-section-flex);
+                max-width: none;
+                min-width: 0;
+            }
+
+            .ref-section {
+                order: 2;
+                flex: var(--bottom-section-flex);
+            }
         }

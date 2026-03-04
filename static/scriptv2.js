@@ -752,19 +752,15 @@ function renderSomGraph() {
         .attr("height", "100%");
 
     const zoomRoot = svgRoot.append("g");
-    svgRoot.call(
-        d3.zoom()
-            .scaleExtent([0.3, 6])
-            .on("zoom", (event) => {
-                zoomRoot.attr("transform", event.transform);
-            })
-    );
+    const zoomBehavior = d3.zoom()
+        .scaleExtent([0.3, 6])
+        .on("zoom", (event) => {
+            zoomRoot.attr("transform", event.transform);
+        });
+    svgRoot.call(zoomBehavior);
 
-    const g = zoomRoot.append("g")
-        .attr("transform", "translate(100, 100) scale(0.8)");
-
-    const linkLayer = g.append("g").attr("class", "links-layer").style("pointer-events", "none");
-    const hexLayer = g.append("g").attr("class", "hex-layer");
+    const linkLayer = zoomRoot.append("g").attr("class", "links-layer").style("pointer-events", "none");
+    const hexLayer = zoomRoot.append("g").attr("class", "hex-layer");
     const cells = somSelectionData.cells;
 
     const hexGroups = hexLayer.selectAll(".hex-group")
@@ -969,6 +965,41 @@ function renderSomGraph() {
             if (elem.layer !== currentLayer) return 0;
             return (somCurrentActiveDegree[elem.id] || 0) > 0 ? 1 : 0;
         });
+
+    // Auto-fit SOM cells into the current viewport instead of using a fixed transform.
+    const rect = container.getBoundingClientRect();
+    const viewWidth = Math.max(1, Number(rect.width) || 1);
+    const viewHeight = Math.max(1, Number(rect.height) || 1);
+    const fitPadding = 24;
+
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+
+    cells.forEach((cell) => {
+        const cx = Number(cell.cx || 0);
+        const cy = Number(cell.cy || 0);
+        minX = Math.min(minX, cx - somHexSize);
+        maxX = Math.max(maxX, cx + somHexSize);
+        minY = Math.min(minY, cy - somHexSize);
+        maxY = Math.max(maxY, cy + somHexSize);
+    });
+
+    const contentWidth = Math.max(1, maxX - minX);
+    const contentHeight = Math.max(1, maxY - minY);
+    const availableWidth = Math.max(1, viewWidth - (fitPadding * 2));
+    const availableHeight = Math.max(1, viewHeight - (fitPadding * 2));
+    const rawScale = Math.min(availableWidth / contentWidth, availableHeight / contentHeight);
+    const fitScale = Math.max(0.3, Math.min(6, rawScale));
+
+    const fitTranslateX = ((viewWidth - (contentWidth * fitScale)) / 2) - (minX * fitScale);
+    const fitTranslateY = ((viewHeight - (contentHeight * fitScale)) / 2) - (minY * fitScale);
+
+    svgRoot.call(
+        zoomBehavior.transform,
+        d3.zoomIdentity.translate(fitTranslateX, fitTranslateY).scale(fitScale)
+    );
 }
 
 function resetSomFlow() {
@@ -1524,9 +1555,11 @@ function renderGalleryUI() {
         <div class="gallery-item">
             <div class="gallery-img-container"><img src="${activeItem.imgUrl}" class="gallery-img" alt="poster"></div>
             <div class="gallery-info">
-                <h4>Design Selections</h4>
-                ${selectionHtml || '<div class="center-msg">No selection details</div>'}
-                <div style="margin-top:12px;">
+                <div class="gallery-info-content">
+                    <h4>Design Selections</h4>
+                    ${selectionHtml || '<div class="center-msg">No selection details</div>'}
+                </div>
+                <div class="gallery-info-actions">
                     <a href="${activeItem.imgUrl}" download="infographic_${activeItem.id}.png" class="primary-btn" style="display:block; text-align:center; text-decoration:none; padding:8px;">Download</a>
                 </div>
             </div>
