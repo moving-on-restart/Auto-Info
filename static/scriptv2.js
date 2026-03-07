@@ -3305,10 +3305,17 @@ function renderSankeyDiagram(
     const viewW = Math.max(320, measuredWidth);
     const viewH = Math.max(240, measuredHeight);
 
-    // ── Internal layout canvas (horizontal, will be rotated) ──
-    // We use a virtual canvas tall enough so columns have room.
-    const layoutW = viewW;
-    const layoutH = viewH;
+    // ── Internal layout canvas (horizontal d3-sankey, then rotated to bottom-to-top)
+    //
+    //  d3-sankey computes in horizontal orientation:
+    //    x-axis = column direction  → becomes VERTICAL after flip
+    //    y-axis = node spread       → becomes HORIZONTAL after flip
+    //
+    //  So for the rotated diagram to fill viewW × viewH:
+    //    pre-rotation width  (x, columns)    → viewH (vertical extent)
+    //    pre-rotation height (y, node spread) → viewW (horizontal extent)
+    const layoutW = viewH;   // column spacing axis → becomes vertical
+    const layoutH = viewW;   // node spread axis    → becomes horizontal
 
     const nodesPerCol = Array.from(
         { length: SANKEY_COLUMN_COUNT },
@@ -3323,24 +3330,28 @@ function renderSankeyDiagram(
     });
     const maxNodesInCol = Math.max(1, ...nodesPerCol);
 
-    // nodeWidth = thickness of each column band (maps to vertical height after rotation)
+    // nodeWidth = thickness of each column band in flow direction
+    //   → after rotation this becomes the vertical height of each layer band
     const nodeWidth = Math.max(
-        14,
-        Math.min(28, Math.floor(layoutH / 18))
+        16,
+        Math.min(36, Math.floor(viewH / 24))
     );
-    // Left margin: just enough for short column title labels; no right gutter needed (labels removed)
-    const colTitleGutter = 44;
+
+    // Margins (in pre-rotation coords):
+    //   left/right  → bottom/top of rotated view (column direction)
+    //   top/bottom  → left/right of rotated view (node spread)
+    const titleGutter = 42;   // room for column title text on the left
     const margins = {
-        top: 6,
-        right: 6,
-        bottom: 6,
-        left: colTitleGutter,
+        left: 10,              // bottom margin in rotated view
+        right: 10,             // top margin in rotated view
+        bottom: 6,             // right margin in rotated view
+        top: titleGutter,      // left margin in rotated view (for column titles)
     };
-    const innerH =
-        Math.max(100, layoutH - margins.top - margins.bottom);
+
+    const innerW = Math.max(100, layoutH - margins.top - margins.bottom);
     const nodePad = Math.max(
         8,
-        Math.min(24, Math.floor(innerH / (maxNodesInCol + 1)))
+        Math.min(28, Math.floor(innerW / (maxNodesInCol + 1)))
     );
 
     // ── SVG ──
@@ -3355,12 +3366,12 @@ function renderSankeyDiagram(
 
     const defs = svg.append("defs");
 
-    // Soft background
+    // Clean white background
     svg.append("rect")
         .attr("width", viewW)
         .attr("height", viewH)
-        .attr("fill", "#FAFBFD")
-        .attr("rx", 6);
+        .attr("fill", "#FCFCFD")
+        .attr("rx", 4);
 
     const root = svg.append("g").attr("class", "sankey-scene");
 
@@ -3412,7 +3423,7 @@ function renderSankeyDiagram(
     //    vx0,vx1 → horizontal spread (was y0,y1)
     //    vy0,vy1 → vertical position, flipped (column 0 at BOTTOM)
     // ─────────────────────────────────────────────────────────
-    const transformH = layoutH; // reference height for flipping
+    const transformH = layoutW; // flip across the column axis (pre-rotation x = layoutW)
 
     sankeyLayout.nodes.forEach((node) => {
         node.vx0 = node.y0;
@@ -3439,11 +3450,11 @@ function renderSankeyDiagram(
     const wMin = rawWidths.length ? Math.min(...rawWidths) : 1;
     const wMax = rawWidths.length ? Math.max(...rawWidths) : 1;
     const vScale = Math.max(
-        0.82,
-        Math.min(1.4, Math.min(viewW, viewH) / 460)
+        0.85,
+        Math.min(1.6, Math.min(viewW, viewH) / 400)
     );
-    const flowMin = 1.2 * vScale;
-    const flowMax = 10 * vScale;
+    const flowMin = 2.5 * vScale;
+    const flowMax = 20 * vScale;
 
     function adaptiveFlowWidth(link) {
         const raw = Number(link.width || link.value || 1);
@@ -3474,8 +3485,8 @@ function renderSankeyDiagram(
             link.source?.color || getSankeyColumnColor(srcCol, link.source?.payload);
         const tgtColor =
             link.target?.color || getSankeyColumnColor(tgtCol, link.target?.payload);
-        const srcSoft = softenHexColor(srcColor, 0.52);
-        const tgtSoft = softenHexColor(tgtColor, 0.52);
+        const srcSoft = softenHexColor(srcColor, 0.32);
+        const tgtSoft = softenHexColor(tgtColor, 0.32);
 
         const gid = `sankey-vgrad-${galleryItem?.id || "agg"}-${idx}`;
         link._gradientId = gid;
@@ -3494,15 +3505,18 @@ function renderSankeyDiagram(
         grad.append("stop")
             .attr("offset", "0%")
             .attr("stop-color", srcSoft)
-            .attr("stop-opacity", 0.62);
+            .attr("stop-opacity", 0.72);
         grad.append("stop")
             .attr("offset", "100%")
             .attr("stop-color", tgtSoft)
-            .attr("stop-opacity", 0.62);
+            .attr("stop-opacity", 0.72);
     });
 
-    // ── Column level titles (left side, bottom→top) ──
-    const colCenterY = {};
+    // ── Column background bands & titles ──
+    const colInfo = {};
+    const globalMinVx = Math.min(...sankeyLayout.nodes.map((n) => n.vx0));
+    const globalMaxVx = Math.max(...sankeyLayout.nodes.map((n) => n.vx1));
+
     for (let col = 0; col < SANKEY_COLUMN_COUNT; col++) {
         const colNodes = sankeyLayout.nodes.filter(
             (n) => Number(n.column || 0) === col
@@ -3510,30 +3524,48 @@ function renderSankeyDiagram(
         if (!colNodes.length) continue;
         const minVy = Math.min(...colNodes.map((n) => n.vy0));
         const maxVy = Math.max(...colNodes.map((n) => n.vy1));
-        colCenterY[col] = (minVy + maxVy) / 2;
+        colInfo[col] = { centerY: (minVy + maxVy) / 2, minVy, maxVy };
     }
 
+    // Subtle colored background bands for each layer
+    const bandLayer = root.append("g").attr("class", "sankey-column-bands");
+    Object.entries(colInfo).forEach(([colStr, info]) => {
+        const col = Number(colStr);
+        const bandColor = SANKEY_COLUMN_COLORS[col] || "#ccc";
+        const bandPad = 5;
+        bandLayer
+            .append("rect")
+            .attr("x", globalMinVx - 10)
+            .attr("y", info.minVy - bandPad)
+            .attr("width", globalMaxVx - globalMinVx + 20)
+            .attr("height", info.maxVy - info.minVy + bandPad * 2)
+            .attr("fill", bandColor)
+            .attr("fill-opacity", 0.06)
+            .attr("rx", 4)
+            .attr("ry", 4);
+    });
+
+    // Column title text (left side of the diagram)
     const titleLayer = root
         .append("g")
         .attr("class", "sankey-column-titles-v");
 
-    Object.entries(colCenterY).forEach(([colStr, cy]) => {
+    Object.entries(colInfo).forEach(([colStr, info]) => {
         const col = Number(colStr);
         const fullTitle = SANKEY_COLUMN_TITLES[col] || `Col ${col}`;
-        // Use only the Chinese part (before parenthesis) for a compact label
         const title = fullTitle.split("(")[0].trim();
         const labelColor = SANKEY_COLUMN_COLORS[col] || "#8a8f99";
         titleLayer
             .append("text")
-            .attr("x", margins.left - 6)
-            .attr("y", cy)
+            .attr("x", globalMinVx - 14)
+            .attr("y", info.centerY)
             .attr("text-anchor", "end")
             .attr("dominant-baseline", "middle")
             .attr("fill", labelColor)
-            .attr("font-size", "9px")
+            .attr("font-size", "10px")
             .attr("font-weight", "700")
             .attr("letter-spacing", "0.5px")
-            .attr("opacity", 0.9)
+            .attr("opacity", 0.85)
             .text(title);
     });
 
@@ -3547,7 +3579,7 @@ function renderSankeyDiagram(
         .attr("class", "sankey-link")
         .attr("d", verticalSankeyLinkPath)
         .attr("stroke", (d) => `url(#${d._gradientId})`)
-        .attr("stroke-opacity", 0.5)
+        .attr("stroke-opacity", 0.55)
         .attr("stroke-width", (d) => adaptiveFlowWidth(d))
         .attr("stroke-linecap", "round");
 
@@ -3616,10 +3648,10 @@ function renderSankeyDiagram(
         .attr("class", "sankey-node-shape")
         .attr("x", (d) => d.vx0)
         .attr("y", (d) => d.vy0)
-        .attr("width", (d) => Math.max(6, d.vx1 - d.vx0))
-        .attr("height", (d) => Math.max(3, d.vy1 - d.vy0))
-        .attr("rx", 2)
-        .attr("ry", 2)
+        .attr("width", (d) => Math.max(8, d.vx1 - d.vx0))
+        .attr("height", (d) => Math.max(4, d.vy1 - d.vy0))
+        .attr("rx", 3)
+        .attr("ry", 3)
         .attr(
             "fill",
             (d) =>
@@ -3629,9 +3661,9 @@ function renderSankeyDiagram(
                     d.payload
                 )
         )
-        .attr("fill-opacity", 0.92)
-        .attr("stroke", "rgba(255,255,255,0.7)")
-        .attr("stroke-width", 0.8)
+        .attr("fill-opacity", 0.88)
+        .attr("stroke", "rgba(255,255,255,0.5)")
+        .attr("stroke-width", 0.6)
         .classed(
             "sankey-output-pending",
             (d) =>
