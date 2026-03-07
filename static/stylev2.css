@@ -172,47 +172,34 @@
             display: block;
         }
 
+        /* Design tab fills the full panel with no padding */
         #tab-design.tab-content.active {
             display: flex;
             flex-direction: column;
-            gap: 10px;
             overflow: hidden;
             min-height: 0;
+            padding: 0;
         }
 
-        #designSelectionSummary {
-            flex: 0 0 auto;
-            max-height: 22%;
-            overflow-y: auto;
-            border: 1px solid #e5e7eb;
-            border-radius: 6px;
-            background: #ffffff;
-            padding: 8px 10px;
-        }
-
-        .design-sankey-panel {
-            flex: 1 1 auto;
-            min-height: 280px;
-            border: 1px solid #dde1e8;
-            border-radius: 8px;
-            background: #FAFBFD;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-
-        .design-sankey-head {
+        /* Top bar: scheme label + action buttons */
+        .design-top-bar {
             flex: 0 0 auto;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            padding: 6px 10px;
+            background: #f6f7f9;
+            border-bottom: 1px solid #e8eaee;
+            gap: 8px;
+        }
+
+        .design-top-bar-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
             font-size: 10px;
             font-weight: 700;
             color: #525a66;
-            border-bottom: 1px solid #e8eaee;
-            background: #f6f7f9;
-            padding: 8px 10px;
-            border-radius: 8px 8px 0 0;
         }
 
         #designSankeySchemeLabel {
@@ -221,16 +208,51 @@
             font-weight: 600;
         }
 
+        /* Action buttons row inside the design top bar */
+        .design-gallery-actions {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            flex-shrink: 0;
+        }
+
+        .design-gallery-actions .gallery-action-link,
+        .design-gallery-actions .gallery-action-btn {
+            flex: 0 0 auto;
+            padding: 3px 8px;
+            font-size: 9px;
+        }
+
+        /* Sankey container fills all remaining space */
         .design-sankey-container {
             flex: 1 1 auto;
             min-height: 0;
             position: relative;
             overflow: hidden;
-            padding: 8px;
+            padding: 6px;
             background: #FAFBFD;
             display: flex;
             align-items: stretch;
-            border-radius: 0 0 8px 8px;
+        }
+
+        /* Selection summary — below the gallery infographic display */
+        #designSelectionSummary {
+            flex: 0 0 auto;
+            max-height: 20%;
+            overflow-y: auto;
+            border-top: 1px solid #e5e7eb;
+            background: #fafafa;
+            padding: 7px 12px;
+            font-size: 10.5px;
+        }
+
+        #designSelectionSummary .data-row {
+            margin-bottom: 5px;
+            padding-bottom: 5px;
+        }
+
+        #designSelectionSummary .data-value {
+            font-size: 10.5px;
         }
 
         /* --- Sankey Node Tooltip --- */
@@ -564,7 +586,8 @@
         }
 
         .gallery-display-area {
-            flex: 1;
+            flex: 1 1 auto;
+            min-height: 0;
             background: #fff;
             padding: 15px;
             overflow-y: auto;
