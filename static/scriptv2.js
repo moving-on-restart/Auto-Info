@@ -3752,6 +3752,8 @@ function renderGalleryUI() {
         activeGalleryIndex = 0;
         tabsContainer.innerHTML = "";
         viewContainer.innerHTML = '<div class="center-msg">Generated infographics will appear here</div>';
+        const designActionsEl = document.getElementById("designGalleryActions");
+        if (designActionsEl) designActionsEl.innerHTML = "";
         if (isDesignTabActive()) {
             requestAnimationFrame(() => {
                 renderDesignSankey();
@@ -3780,18 +3782,23 @@ function renderGalleryUI() {
         ? "Regenerating..."
         : (activeItem?.regenerateError ? "Retry Regenerate" : "Regenerate");
 
+    // Image only in gallery view
     viewContainer.innerHTML = `
         <div class="gallery-item">
             <div class="gallery-img-container">
                 <img src="${activeItem.imgUrl}" class="gallery-img" alt="poster">
             </div>
-            <div class="gallery-actions">
-                <a href="${activeItem.imgUrl}" download="infographic_${activeItem.id}.png" class="gallery-action-link">Download</a>
-                <button class="gallery-action-btn ${canRegenerate ? "primary" : ""}" ${(!canRegenerate || activeItem?.isRegenerating) ? "disabled" : ""} onclick="regenerateGalleryItem(${activeGalleryIndex})">${regenerateText}</button>
-                ${canRegenerate ? `<button class="gallery-action-btn" onclick="revertGalleryPending(${activeGalleryIndex})">Undo</button>` : ""}
-            </div>
         </div>
     `;
+
+    // Action buttons live in the Design tab's top bar
+    const designActionsEl = document.getElementById("designGalleryActions");
+    if (designActionsEl) {
+        designActionsEl.innerHTML =
+            `<a href="${activeItem.imgUrl}" download="infographic_${activeItem.id}.png" class="gallery-action-link">Download</a>` +
+            `<button class="gallery-action-btn ${canRegenerate ? "primary" : ""}" ${(!canRegenerate || activeItem?.isRegenerating) ? "disabled" : ""} onclick="regenerateGalleryItem(${activeGalleryIndex})">${regenerateText}</button>` +
+            (canRegenerate ? `<button class="gallery-action-btn" onclick="revertGalleryPending(${activeGalleryIndex})">Undo</button>` : "");
+    }
 
     if (isDesignTabActive()) {
         requestAnimationFrame(() => {
