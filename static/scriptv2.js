@@ -2,7 +2,31 @@
 let currentAnalysisAnswer = "";
 let currentChartData = null;
 
-let graphLayoutMode = "force";
+// Frontend-only graph mode switch:
+// - showForceLayoutOption = false: hide FORCE option and use SOM only.
+// - showForceLayoutOption = true: allow FORCE/SOM toggle in UI.
+const GRAPH_LAYOUT_UI_SETTINGS = {
+    showForceLayoutOption: false,
+    defaultLayoutMode: "som",
+};
+
+function normalizeGraphMode(mode) {
+    return String(mode || "").trim().toLowerCase() === "som" ? "som" : "force";
+}
+
+function isForceLayoutEnabled() {
+    return Boolean(GRAPH_LAYOUT_UI_SETTINGS.showForceLayoutOption);
+}
+
+function getAllowedGraphMode(mode) {
+    const normalized = normalizeGraphMode(mode);
+    if (!isForceLayoutEnabled() && normalized === "force") {
+        return "som";
+    }
+    return normalized;
+}
+
+let graphLayoutMode = getAllowedGraphMode(GRAPH_LAYOUT_UI_SETTINGS.defaultLayoutMode);
 let graphBundle = null;
 let fullGraphData = null;
 let forceGraphData = null;
@@ -182,8 +206,20 @@ function updateGraphModeUI() {
             : "FORCE-GUIDED SCHEME EXPLORER";
     }
 
+    const forceEnabled = isForceLayoutEnabled();
+    const toggleWrap = document.getElementById("graphLayoutToggle");
+    if (toggleWrap) {
+        toggleWrap.style.display = forceEnabled ? "inline-flex" : "none";
+    }
+
     const forceBtn = document.getElementById("btnLayoutForce");
     const somBtn = document.getElementById("btnLayoutSom");
+    if (forceBtn) {
+        forceBtn.style.display = forceEnabled ? "inline-block" : "none";
+    }
+    if (somBtn) {
+        somBtn.style.display = "inline-block";
+    }
     if (forceBtn) forceBtn.classList.toggle("active", graphLayoutMode === "force");
     if (somBtn) somBtn.classList.toggle("active", graphLayoutMode === "som");
 
@@ -375,7 +411,7 @@ function initializeSomSelections() {
 }
 
 function setGraphLayoutMode(mode, opts = {}) {
-    const normalizedMode = mode === "som" ? "som" : "force";
+    const normalizedMode = getAllowedGraphMode(mode);
     const preserveSelection = Boolean(opts.preserveSelection);
     const preservePalette = Boolean(opts.preservePalette);
 
@@ -606,7 +642,7 @@ async function pollForceGraphProgressOnce() {
 }
 
 function applyGraphBundleByMode(data, modeHint = "force") {
-    const mode = String(data?.layout_mode || modeHint || "force").trim().toLowerCase() === "som" ? "som" : "force";
+    const mode = normalizeGraphMode(data?.layout_mode || modeHint || "force");
 
     graphBundle = data;
     groupDefaults = data.group_defaults || {};
@@ -625,6 +661,11 @@ function applyGraphBundleByMode(data, modeHint = "force") {
         setGraphLayoutMode("som");
         switchTab(3);
         return true;
+    }
+
+    if (!isForceLayoutEnabled()) {
+        alert("Force layout is disabled in frontend settings. Set showForceLayoutOption = true to enable it.");
+        return false;
     }
 
     forceGraphData = data.graph_data || { nodes: [], links: [] };
@@ -1948,12 +1989,18 @@ async function buildForceGraphFromUploadedJson() {
 }
 
 function bindEvents() {
-    document.getElementById("btnLayoutForce").addEventListener("click", () => {
-        setGraphLayoutMode("force");
-    });
-    document.getElementById("btnLayoutSom").addEventListener("click", () => {
-        setGraphLayoutMode("som");
-    });
+    const btnLayoutForce = document.getElementById("btnLayoutForce");
+    const btnLayoutSom = document.getElementById("btnLayoutSom");
+    if (btnLayoutForce) {
+        btnLayoutForce.addEventListener("click", () => {
+            setGraphLayoutMode("force");
+        });
+    }
+    if (btnLayoutSom) {
+        btnLayoutSom.addEventListener("click", () => {
+            setGraphLayoutMode("som");
+        });
+    }
 
     document.getElementById("btnUpload").addEventListener("click", uploadCsv);
     document.getElementById("btnAnalyze").addEventListener("click", runAnalysis);
@@ -2008,5 +2055,5 @@ function bindEvents() {
 }
 
 bindEvents();
-setGraphLayoutMode("force", { preserveSelection: true, preservePalette: true });
+setGraphLayoutMode(getAllowedGraphMode(GRAPH_LAYOUT_UI_SETTINGS.defaultLayoutMode), { preserveSelection: true, preservePalette: true });
 renderGalleryUI();
