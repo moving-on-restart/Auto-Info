@@ -82,6 +82,8 @@ let currentRefImagePath = "";
 
 let galleryData = [];
 let activeGalleryIndex = 0;
+let galleryViewMode = "single";
+let sankeyFloatingPanelCleanup = null;
 let forceGraphJobId = null;
 let forceGraphProgressTimer = null;
 let forceGraphPollingInFlight = false;
@@ -92,6 +94,27 @@ const FORCE_SAMPLE_COUNT_FALLBACK_MIN = 1;
 const FORCE_SAMPLE_COUNT_FALLBACK_MAX = 150;
 
 let colorScale = null;
+let graphLinkWeightCache = null;
+let graphLinkWeightCacheRef = null;
+
+const SANKEY_COLUMN_COUNT = 6;
+const SANKEY_MAX_FLOW_WIDTH = 5;
+const SANKEY_COLUMN_TITLES = [
+    "洞察(Insight)",
+    "底层(Bottom)",
+    "中层(Middle)",
+    "顶层(Top)",
+    "配色(Palette)",
+    "输出(Output)",
+];
+const SANKEY_COLUMN_COLORS = {
+    0: "#5E7AD9",
+    1: "#84A6F4",
+    2: "#4FD0C9",
+    3: "#E7A067",
+    4: "#A98AE6",
+    5: "#8DD2D7",
+};
 
 function getColorScale() {
     if (typeof d3 === "undefined") return null;
@@ -244,6 +267,8 @@ function updateGraphModeUI() {
 
 function useForceGraphAsActiveData() {
     fullGraphData = forceGraphData;
+    graphLinkWeightCache = null;
+    graphLinkWeightCacheRef = null;
     graphNodeMap = {};
     (fullGraphData?.nodes || []).forEach((node) => {
         graphNodeMap[node.id] = node;
@@ -383,6 +408,8 @@ function prepareSomSelectionData() {
             is_intra: false,
         })),
     };
+    graphLinkWeightCache = null;
+    graphLinkWeightCacheRef = null;
     graphNodeMap = {};
     elementNodes.forEach((node) => {
         graphNodeMap[node.id] = node;
@@ -433,6 +460,8 @@ function setGraphLayoutMode(mode, opts = {}) {
             renderSomStep();
         } else {
             fullGraphData = null;
+            graphLinkWeightCache = null;
+            graphLinkWeightCacheRef = null;
             graphNodeMap = {};
             renderDesignSummary();
             renderGraphPlaceholder();
@@ -446,6 +475,8 @@ function setGraphLayoutMode(mode, opts = {}) {
         initForceExplorer();
     } else {
         fullGraphData = null;
+        graphLinkWeightCache = null;
+        graphLinkWeightCacheRef = null;
         graphNodeMap = {};
         renderDesignSummary();
         renderGraphPlaceholder();
@@ -690,6 +721,9 @@ function applyForceGraphBundle(data) {
 function switchTab(index) {
     document.querySelectorAll(".tab-btn").forEach((b, i) => b.classList.toggle("active", i === index));
     document.querySelectorAll(".tab-content").forEach((c, i) => c.classList.toggle("active", i === index));
+    if (Number(index) === 3) {
+        renderDesignSummary();
+    }
 }
 window.switchTab = switchTab;
 
@@ -700,6 +734,18 @@ function toHexColor(rgb) {
         .map((v) => v.toString(16).padStart(2, "0"))
         .join("")
         .toUpperCase();
+}
+
+function softenHexColor(hex, whiteMix = 0.56) {
+    const rgb = rgbTripletFromHex(hex);
+    if (!rgb) return String(hex || "#9CA3AF");
+    const mix = Math.max(0, Math.min(0.9, Number(whiteMix) || 0));
+    const eased = [
+        Math.round(rgb[0] + ((255 - rgb[0]) * mix)),
+        Math.round(rgb[1] + ((255 - rgb[1]) * mix)),
+        Math.round(rgb[2] + ((255 - rgb[2]) * mix)),
+    ];
+    return toHexColor(eased) || String(hex || "#9CA3AF");
 }
 
 function renderSchema(meta) {
@@ -1455,8 +1501,13 @@ function renderDesignSummary() {
 
     if (!fullGraphData) {
         container.innerHTML = graphLayoutMode === "som"
-            ? "Build SOM graph and select nodes first"
-            : "Build force graph and select nodes first";
+            ? '<div class="center-msg">Build SOM graph and select nodes first</div>'
+            : '<div class="center-msg">Build force graph and select nodes first</div>';
+        if (isDesignTabActive()) {
+            requestAnimationFrame(() => {
+                renderDesignSankey();
+            });
+        }
         return;
     }
 
@@ -1499,6 +1550,44 @@ function renderDesignSummary() {
     }
 
     container.innerHTML = html;
+    if (isDesignTabActive()) {
+        requestAnimationFrame(() => {
+            renderDesignSankey();
+        });
+    }
+}
+
+function isDesignTabActive() {
+    const tab = document.getElementById("tab-design");
+    return Boolean(tab && tab.classList.contains("active"));
+}
+
+function renderDesignSankey() {
+    const sankeyContainer = document.getElementById("designSankeyContainer");
+    const schemeLabel = document.getElementById("designSankeySchemeLabel");
+    if (!sankeyContainer) return;
+
+    if (!galleryData.length) {
+        if (schemeLabel) schemeLabel.textContent = "No Scheme";
+        sankeyContainer.innerHTML = '<div class="center-msg">Generate and select a scheme first</div>';
+        return;
+    }
+
+    if (activeGalleryIndex >= galleryData.length) activeGalleryIndex = galleryData.length - 1;
+    if (activeGalleryIndex < 0) activeGalleryIndex = 0;
+    galleryViewMode = "single";
+
+    const activeItem = galleryData[activeGalleryIndex];
+    if (!activeItem) {
+        if (schemeLabel) schemeLabel.textContent = "No Scheme";
+        sankeyContainer.innerHTML = '<div class="center-msg">No active scheme</div>';
+        return;
+    }
+
+    const schemeNumber = galleryData.length - activeGalleryIndex;
+    if (schemeLabel) schemeLabel.textContent = `Scheme ${schemeNumber}`;
+    const context = getAnalysisContextForGalleryItem(activeItem);
+    renderSankeyDiagram(sankeyContainer, activeItem, context, { aggregate: false });
 }
 
 async function generateFinalPosterFromForceGraph() {
@@ -1551,77 +1640,7 @@ async function generateFinalPosterFromForceGraph() {
     }
 }
 
-function renderGalleryUI() {
-    const tabsContainer = document.getElementById("galleryTabs");
-    const viewContainer = document.getElementById("galleryView");
-
-    if (!tabsContainer || !viewContainer) return;
-
-    if (galleryData.length === 0) {
-        tabsContainer.innerHTML = "";
-        viewContainer.innerHTML = '<div class="center-msg">Generated infographics will appear here</div>';
-        return;
-    }
-
-    tabsContainer.innerHTML = galleryData
-        .map((item, index) => `<div class="gallery-tab ${index === activeGalleryIndex ? "active" : ""}" onclick="switchGalleryTab(${index})">Scheme ${galleryData.length - index}</div>`)
-        .join("");
-
-    const activeItem = galleryData[activeGalleryIndex];
-    const selections = activeItem.selections || {};
-
-    const layerTitleMap = {
-        bottom_layer: "Bottom Layer",
-        middle_layer: "Middle Layer",
-        top_layer: "Top Layer",
-    };
-
-    let selectionHtml = "";
-    layerOrder.forEach((layer) => {
-        const layerData = selections[layer] || {};
-        if (!Object.keys(layerData).length) return;
-
-        selectionHtml += `<div style="margin-bottom:10px;"><div style="font-size:11px; color:var(--primary); font-weight:700; margin-bottom:4px;">${layerTitleMap[layer]}</div>`;
-        Object.entries(layerData).forEach(([key, value]) => {
-            let displayValue = value;
-            if (typeof value === "object" && value !== null) {
-                displayValue = value.label || value.keywords || value.name || JSON.stringify(value);
-            }
-            selectionHtml += `<div class="info-row"><div class="info-label">${key}</div><div class="info-val">${displayValue}</div></div>`;
-        });
-        selectionHtml += `</div>`;
-    });
-
-    viewContainer.innerHTML = `
-        <div class="gallery-item">
-            <div class="gallery-img-container"><img src="${activeItem.imgUrl}" class="gallery-img" alt="poster"></div>
-            <div class="gallery-info">
-                <div class="gallery-info-content">
-                    <h4>Design Selections</h4>
-                    ${selectionHtml || '<div class="center-msg">No selection details</div>'}
-                </div>
-                <div class="gallery-info-actions">
-                    <a href="${activeItem.imgUrl}" download="infographic_${activeItem.id}.png" class="primary-btn" style="display:block; text-align:center; text-decoration:none; padding:8px;">Download</a>
-                </div>
-            </div>
-        </div>
-    `;
-}
-
-function addToGallery(imgUrl, usedSelections) {
-    galleryData.unshift({
-        id: Date.now(),
-        imgUrl,
-        selections: JSON.parse(JSON.stringify(usedSelections || {})),
-    });
-    activeGalleryIndex = 0;
-    renderGalleryUI();
-}
-
-window.switchGalleryTab = function(index) {
-    activeGalleryIndex = index;
-    renderGalleryUI();
-};
+// Gallery UI/addToGallery/switch handlers are overridden in the Sankey section below.
 
 async function renderRefImage(url) {
     const mainImage = document.getElementById("mainImage");
@@ -1988,6 +2007,1616 @@ async function buildForceGraphFromUploadedJson() {
     }
 }
 
+function deepClone(value) {
+    if (value === undefined) return undefined;
+    if (typeof structuredClone === "function") {
+        try {
+            return structuredClone(value);
+        } catch (_) {
+            // Fall through to JSON clone.
+        }
+    }
+    return JSON.parse(JSON.stringify(value));
+}
+
+function normalizeMatchText(value) {
+    return String(value || "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, "")
+        .replace(/[^\w\u4e00-\u9fa5]/g, "");
+}
+
+function shortSankeyLabel(text, maxLen = 8) {
+    const raw = String(text || "").trim();
+    if (!raw) return "N/A";
+    if (raw.length <= maxLen) return raw;
+    return `${raw.slice(0, maxLen)}...`;
+}
+
+function clampToByte(num) {
+    return Math.max(0, Math.min(255, Number(num) || 0));
+}
+
+function normalizeRgbTriplet(color) {
+    if (!Array.isArray(color) || color.length < 3) return null;
+    return [
+        Math.round(clampToByte(color[0])),
+        Math.round(clampToByte(color[1])),
+        Math.round(clampToByte(color[2])),
+    ];
+}
+
+function rgbTripletFromHex(hex) {
+    const clean = String(hex || "").trim().replace("#", "");
+    if (!/^[0-9a-fA-F]{6}$/.test(clean)) return null;
+    return [
+        Number.parseInt(clean.slice(0, 2), 16),
+        Number.parseInt(clean.slice(2, 4), 16),
+        Number.parseInt(clean.slice(4, 6), 16),
+    ];
+}
+
+function normalizePalettePayload(meta, fallbackLabel = "Palette") {
+    if (!meta || typeof meta !== "object") return null;
+    const palette = (Array.isArray(meta.palette) ? meta.palette : [])
+        .map((color) => {
+            if (Array.isArray(color)) return normalizeRgbTriplet(color);
+            if (typeof color === "string") return rgbTripletFromHex(color);
+            return null;
+        })
+        .filter(Boolean);
+
+    if (!palette.length) return null;
+
+    return {
+        type: String(meta.type || "palette"),
+        label: String(meta.label || fallbackLabel || "Palette"),
+        source_label: String(meta.source_label || meta.label || fallbackLabel || "palette_source"),
+        palette,
+        harmony_score: Number.isFinite(Number(meta.harmony_score)) ? Number(meta.harmony_score) : null,
+    };
+}
+
+function paletteHexListFromPayload(payload) {
+    const normalized = normalizePalettePayload(payload);
+    if (!normalized) return [];
+    return normalized.palette
+        .map((triplet) => toHexColor(triplet))
+        .filter(Boolean);
+}
+
+function getSankeyColumnColor(column, payload = null) {
+    if (Number(column) === 4) {
+        const paletteHex = paletteHexListFromPayload(payload);
+        return paletteHex[0] || SANKEY_COLUMN_COLORS[4];
+    }
+    return SANKEY_COLUMN_COLORS[column] || "#9CA3AF";
+}
+
+function getSankeySafeId(parts) {
+    return parts
+        .map((part) => String(part || "unknown").trim().replace(/[^\w\u4e00-\u9fa5-]+/g, "_"))
+        .join("::");
+}
+
+function getSankeyLinkKey(sourceId, targetId) {
+    return `${sourceId}=>${targetId}`;
+}
+
+function getGalleryWorkingSelections(galleryItem) {
+    return deepClone(galleryItem?.pendingSelections || galleryItem?.selections || {
+        bottom_layer: {},
+        middle_layer: {},
+        top_layer: {},
+    });
+}
+
+function getAnalysisContextForGalleryItem(galleryItem) {
+    const snap = galleryItem?.analysisSnapshot || {};
+    return {
+        query: snap.query ?? (document.getElementById("queryInput")?.value || ""),
+        description: snap.description ?? (document.getElementById("tableDesc")?.value || ""),
+        analysisAnswer: snap.analysisAnswer ?? currentAnalysisAnswer,
+        chartData: snap.chartData ?? currentChartData,
+        paletteMeta: snap.paletteMeta ?? selectedPaletteMeta,
+    };
+}
+
+function getSelectionDisplayName(groupId, value) {
+    if (value === null || value === undefined) return "N/A";
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+        return String(value);
+    }
+    if (typeof value !== "object") return String(value);
+
+    if (groupId === "color_scheme") {
+        return value.label || value.name || value.source_label || "Palette";
+    }
+    if (groupId === "visual_assets") {
+        return value.suggestion || value.keywords || value.label || value.name || "Asset";
+    }
+
+    return value.label || value.name || value.value || value.text || value.content || JSON.stringify(value);
+}
+
+function getGraphLinkWeightLookup() {
+    if (!fullGraphData || !Array.isArray(fullGraphData.links)) return new Map();
+    if (graphLinkWeightCache && graphLinkWeightCacheRef === fullGraphData) {
+        return graphLinkWeightCache;
+    }
+
+    const map = new Map();
+    fullGraphData.links.forEach((link) => {
+        const sourceId = getSourceId(link);
+        const targetId = getTargetId(link);
+        if (!sourceId || !targetId) return;
+        const key = [sourceId, targetId].sort().join("||");
+
+        let strength = Number(link.jaccard);
+        if (!Number.isFinite(strength)) {
+            const lift = Number(link.lift);
+            if (Number.isFinite(lift)) {
+                strength = Math.min(1, Math.max(0, lift / 5));
+            } else {
+                const coOccur = Number(link.co_occur);
+                strength = Number.isFinite(coOccur) ? Math.min(1, Math.max(0, coOccur / 10)) : 0;
+            }
+        }
+
+        const existing = map.get(key);
+        if (!Number.isFinite(existing) || strength > existing) {
+            map.set(key, strength);
+        }
+    });
+
+    graphLinkWeightCache = map;
+    graphLinkWeightCacheRef = fullGraphData;
+    return map;
+}
+
+function getStrengthFromIds(sourceIds, targetIds) {
+    const lookup = getGraphLinkWeightLookup();
+    let best = null;
+
+    sourceIds.forEach((sourceId) => {
+        targetIds.forEach((targetId) => {
+            if (!sourceId || !targetId || sourceId === targetId) return;
+            const key = [sourceId, targetId].sort().join("||");
+            const strength = lookup.get(key);
+            if (Number.isFinite(strength)) {
+                best = best === null ? strength : Math.max(best, strength);
+            }
+        });
+    });
+
+    return best;
+}
+
+function getGraphCandidates(layer, groupId) {
+    if (!fullGraphData || !Array.isArray(fullGraphData.nodes)) return [];
+    return fullGraphData.nodes.filter((node) => node.layer === layer && node.group_id === groupId);
+}
+
+function makeAlternativeFromGraphNode(node, layerHint, groupHint) {
+    const payload = node?.option_payload && typeof node.option_payload === "object"
+        ? deepClone(node.option_payload)
+        : null;
+
+    const alt = {
+        id: String(node?.id || ""),
+        name: String(node?.name || node?.label || node?.id || "Option"),
+        layer: layerHint || node?.layer || "middle_layer",
+        groupId: groupHint || node?.group_id || "unknown_group",
+        nodeType: "design_element",
+        payload,
+        graphRefId: String(node?.id || ""),
+        val: Number(node?.val || node?.count || 1) || 1,
+    };
+
+    if (alt.groupId === "color_scheme") {
+        const palettePayload = normalizePalettePayload(payload || {}, alt.name);
+        alt.nodeType = "palette";
+        if (palettePayload) alt.payload = palettePayload;
+    }
+
+    return alt;
+}
+
+function getAlternativesForNode(layer, groupId, excludeId) {
+    return getGraphCandidates(layer, groupId)
+        .filter((node) => String(node.id) !== String(excludeId))
+        .sort((a, b) => (Number(b.val || b.count || 0) - Number(a.val || a.count || 0)))
+        .slice(0, 6)
+        .map((node) => makeAlternativeFromGraphNode(node, layer, groupId));
+}
+
+function getPaletteAlternatives(excludeId) {
+    const alternatives = [];
+
+    (fullGraphData?.nodes || [])
+        .filter((node) => node.is_palette_node || node.group_id === "color_scheme")
+        .forEach((node) => {
+            if (String(node.id) === String(excludeId)) return;
+            alternatives.push({
+                ...makeAlternativeFromGraphNode(node, "middle_layer", "color_scheme"),
+                nodeType: "palette",
+            });
+        });
+
+    extractedPaletteResults.forEach((item, idx) => {
+        const payload = normalizePalettePayload({
+            type: "palette",
+            label: item?.label || `Extracted-${idx + 1}`,
+            source_label: item?.label || `object_${idx + 1}`,
+            palette: item?.palette || [],
+            harmony_score: item?.harmony_score,
+        }, `Extracted-${idx + 1}`);
+        if (!payload) return;
+
+        alternatives.push({
+            id: `palette_preset::${idx}`,
+            name: payload.label || `Preset ${idx + 1}`,
+            layer: "middle_layer",
+            groupId: "color_scheme",
+            nodeType: "palette",
+            payload,
+            graphRefId: "",
+            val: 1,
+        });
+    });
+
+    const unique = new Map();
+    alternatives.forEach((alt) => {
+        if (!alt || !alt.id) return;
+        if (!unique.has(alt.id)) unique.set(alt.id, alt);
+    });
+
+    return Array.from(unique.values()).slice(0, 8);
+}
+
+function findGraphNodeMatch(layer, groupId, selectedValue, displayName) {
+    const candidates = getGraphCandidates(layer, groupId);
+    if (!candidates.length) return null;
+
+    const targets = new Set([
+        normalizeMatchText(displayName),
+        normalizeMatchText(selectedValue?.label),
+        normalizeMatchText(selectedValue?.name),
+        normalizeMatchText(selectedValue?.value),
+        normalizeMatchText(selectedValue?.suggestion),
+        normalizeMatchText(selectedValue?.keywords),
+    ]);
+
+    let direct = candidates.find((node) => targets.has(normalizeMatchText(node.name)));
+    if (direct) return direct;
+
+    direct = candidates.find((node) => targets.has(normalizeMatchText(node.id)));
+    if (direct) return direct;
+
+    return candidates[0];
+}
+
+function inferDataDomain(query, analysisAnswer) {
+    const text = `${query || ""} ${analysisAnswer || ""}`;
+    const rules = [
+        { tag: "历史文物", keys: ["文物", "瓷器", "考古", "博物馆", "朝代"] },
+        { tag: "金融", keys: ["金融", "股票", "收益", "基金", "市值"] },
+        { tag: "医疗", keys: ["医疗", "患者", "诊断", "药物", "医院"] },
+        { tag: "教育", keys: ["教育", "学校", "学生", "成绩", "课程"] },
+        { tag: "电商", keys: ["电商", "销售", "订单", "用户", "GMV"] },
+    ];
+
+    for (const rule of rules) {
+        if (rule.keys.some((key) => text.includes(key))) return rule.tag;
+    }
+    return "通用数据";
+}
+
+function extractInsightNodes(query, analysisAnswer) {
+    const nodes = [];
+    const intentText = String(query || "用户问题").trim();
+    nodes.push({
+        id: getSankeySafeId(["insight", "query_intent", intentText.slice(0, 20)]),
+        name: intentText.slice(0, 20) || "Query Intent",
+        groupId: "query_intent",
+        payload: { raw: intentText },
+    });
+
+    const metricMatch = String(analysisAnswer || "").match(/[-+]?\d+(?:\.\d+)?%?/g);
+    if (metricMatch && metricMatch.length) {
+        const metric = metricMatch.slice(0, 3).join(" / ");
+        nodes.push({
+            id: getSankeySafeId(["insight", "key_metric", metric]),
+            name: `指标 ${metric}`.slice(0, 20),
+            groupId: "key_metric",
+            payload: { metric },
+        });
+    }
+
+    const domain = inferDataDomain(query, analysisAnswer);
+    nodes.push({
+        id: getSankeySafeId(["insight", "data_domain", domain]),
+        name: domain,
+        groupId: "data_domain",
+        payload: { domain },
+    });
+
+    return nodes;
+}
+
+function normalizeSankeyLinksBySource(links, maxFlowWidth = SANKEY_MAX_FLOW_WIDTH) {
+    const grouped = {};
+    links.forEach((link) => {
+        const sourceId = String(link.source || "");
+        if (!grouped[sourceId]) grouped[sourceId] = [];
+        grouped[sourceId].push(link);
+    });
+
+    Object.values(grouped).forEach((groupLinks) => {
+        const exps = groupLinks.map((link) => Math.exp(Number(link.strength || 0)));
+        const total = exps.reduce((sum, num) => sum + num, 0) || 1;
+        groupLinks.forEach((link, idx) => {
+            const normalized = exps[idx] / total;
+            link.value = Math.max(1, Math.round(normalized * maxFlowWidth));
+            link.normalized_weight = normalized;
+        });
+    });
+}
+
+function ensureSankeyColumns(nodes) {
+    const byCol = {};
+    nodes.forEach((node) => {
+        const col = Number(node.column || 0);
+        if (!byCol[col]) byCol[col] = [];
+        byCol[col].push(node);
+    });
+
+    for (let col = 0; col < SANKEY_COLUMN_COUNT; col += 1) {
+        if (!byCol[col] || !byCol[col].length) {
+            const placeholder = {
+                id: `placeholder::${col}`,
+                name: "N/A",
+                column: col,
+                layer: "placeholder",
+                groupId: "placeholder",
+                nodeType: "design_element",
+                value: 1,
+                color: getSankeyColumnColor(col),
+                isEditable: false,
+                isActive: false,
+                payload: {},
+                alternatives: [],
+                graphRefId: "",
+            };
+            nodes.push(placeholder);
+            byCol[col] = [placeholder];
+        }
+    }
+    return byCol;
+}
+
+function repairIsolatedSankeyNodes(nodes, links) {
+    const nodeMap = new Map(nodes.map((node) => [node.id, node]));
+    const inDegree = {};
+    const outDegree = {};
+
+    links.forEach((link) => {
+        const sourceId = String(link.source);
+        const targetId = String(link.target);
+        inDegree[targetId] = (inDegree[targetId] || 0) + 1;
+        outDegree[sourceId] = (outDegree[sourceId] || 0) + 1;
+    });
+
+    const columns = ensureSankeyColumns(nodes);
+
+    nodes.forEach((node) => {
+        const hasIn = (inDegree[node.id] || 0) > 0;
+        const hasOut = (outDegree[node.id] || 0) > 0;
+        if (hasIn || hasOut) return;
+
+        // Preserve relationship fidelity: only auto-bridge synthetic placeholders.
+        if (node.layer !== "placeholder") return;
+
+        const col = Number(node.column || 0);
+        if (col === SANKEY_COLUMN_COUNT - 1) {
+            const prev = columns[col - 1]?.[0];
+            if (prev) {
+                links.push({ source: prev.id, target: node.id, value: 1, strength: 0.25, isHighlighted: false });
+            }
+        } else {
+            const next = columns[col + 1]?.[0];
+            if (next) {
+                links.push({ source: node.id, target: next.id, value: 1, strength: 0.25, isHighlighted: false });
+            }
+        }
+    });
+
+    for (let idx = links.length - 1; idx >= 0; idx -= 1) {
+        const link = links[idx];
+        const source = nodeMap.get(String(link.source));
+        const target = nodeMap.get(String(link.target));
+        if (!source || !target || source.column >= target.column || source.id === target.id) {
+            links.splice(idx, 1);
+        }
+    }
+}
+
+function buildSankeyData(galleryItem, analysisContext = {}) {
+    const selections = getGalleryWorkingSelections(galleryItem) || {};
+    const nodes = [];
+    const links = [];
+    const nodeMap = new Map();
+    const linkMap = new Map();
+    const columns = Array.from({ length: SANKEY_COLUMN_COUNT }, () => []);
+
+    const addNode = (rawNode) => {
+        if (!rawNode || !rawNode.id) return null;
+        const id = String(rawNode.id);
+
+        if (nodeMap.has(id)) {
+            const existing = nodeMap.get(id);
+            existing.value += Number(rawNode.value || 1);
+            return existing;
+        }
+
+        const node = {
+            id,
+            name: rawNode.name || id,
+            column: Number(rawNode.column || 0),
+            layer: rawNode.layer || "middle_layer",
+            groupId: rawNode.groupId || "unknown_group",
+            nodeType: rawNode.nodeType || "design_element",
+            value: Math.max(1, Number(rawNode.value || 1)),
+            color: rawNode.color || getSankeyColumnColor(Number(rawNode.column || 0), rawNode.payload),
+            isEditable: Boolean(rawNode.isEditable),
+            isActive: rawNode.isActive !== false,
+            payload: rawNode.payload && typeof rawNode.payload === "object" ? rawNode.payload : {},
+            alternatives: Array.isArray(rawNode.alternatives) ? rawNode.alternatives : [],
+            graphRefId: String(rawNode.graphRefId || ""),
+        };
+
+        nodes.push(node);
+        nodeMap.set(id, node);
+        if (columns[node.column]) columns[node.column].push(node);
+        return node;
+    };
+
+    const addLink = (sourceId, targetId, value = 1, strength = 1) => {
+        const source = nodeMap.get(String(sourceId));
+        const target = nodeMap.get(String(targetId));
+        if (!source || !target) return;
+        if (source.id === target.id || source.column >= target.column) return;
+
+        const key = getSankeyLinkKey(source.id, target.id);
+        if (linkMap.has(key)) {
+            const existing = linkMap.get(key);
+            existing.value += Number(value || 1);
+            existing.strength = (Number(existing.strength || 0) + Number(strength || 0)) / 2;
+            return;
+        }
+
+        const link = {
+            source: source.id,
+            target: target.id,
+            value: Math.max(1, Number(value || 1)),
+            strength: Math.max(0, Math.min(1, Number(strength || 0))),
+            isHighlighted: false,
+        };
+        links.push(link);
+        linkMap.set(key, link);
+    };
+
+    const insightNodes = extractInsightNodes(analysisContext.query, analysisContext.analysisAnswer).map((insight) => addNode({
+        id: insight.id,
+        name: insight.name,
+        column: 0,
+        layer: "data_insight",
+        groupId: insight.groupId,
+        nodeType: "data_insight",
+        value: 1,
+        color: getSankeyColumnColor(0),
+        isEditable: false,
+        isActive: true,
+        payload: insight.payload || {},
+        alternatives: [],
+        graphRefId: "",
+    })).filter(Boolean);
+
+    const buildLayerNodes = (layer, columnIdx) => {
+        const layerData = selections[layer] && typeof selections[layer] === "object" ? selections[layer] : {};
+        const built = [];
+        Object.entries(layerData).forEach(([groupId, selectedValue]) => {
+            const displayName = getSelectionDisplayName(groupId, selectedValue);
+            const matchedGraph = findGraphNodeMatch(layer, groupId, selectedValue, displayName);
+            const payload = (selectedValue && typeof selectedValue === "object")
+                ? deepClone(selectedValue)
+                : (matchedGraph?.option_payload && typeof matchedGraph.option_payload === "object"
+                    ? deepClone(matchedGraph.option_payload)
+                    : {});
+            const nodeId = matchedGraph?.id || getSankeySafeId([layer, groupId, displayName]);
+            const alternatives = getAlternativesForNode(layer, groupId, nodeId);
+
+            const node = addNode({
+                id: nodeId,
+                name: displayName,
+                column: columnIdx,
+                layer,
+                groupId,
+                nodeType: "design_element",
+                value: 1,
+                color: getSankeyColumnColor(columnIdx),
+                isEditable: true,
+                isActive: true,
+                payload,
+                alternatives,
+                graphRefId: matchedGraph?.id || "",
+            });
+            if (node) built.push(node);
+        });
+        return built;
+    };
+
+    const bottomNodes = buildLayerNodes("bottom_layer", 1);
+    const middleNodes = buildLayerNodes("middle_layer", 2);
+    const topNodes = buildLayerNodes("top_layer", 3);
+    const colorSchemeNode = middleNodes.find((node) => node.groupId === "color_scheme") || null;
+
+    let palettePayload = normalizePalettePayload(analysisContext.paletteMeta, "Palette");
+    if (!palettePayload) {
+        palettePayload = normalizePalettePayload(selections?.middle_layer?.color_scheme, colorSchemeNode?.name || "Palette");
+    }
+    if (!palettePayload && colorSchemeNode?.payload) {
+        palettePayload = normalizePalettePayload(colorSchemeNode.payload, colorSchemeNode.name || "Palette");
+    }
+
+    let paletteNode = null;
+    if (palettePayload || colorSchemeNode) {
+        const paletteLabel = palettePayload?.label || colorSchemeNode?.name || "Palette";
+        const paletteId = palettePayload
+            ? getSankeySafeId(["palette", paletteLabel, galleryItem?.id || "active"])
+            : getSankeySafeId(["palette", colorSchemeNode?.id || "color_scheme"]);
+
+        paletteNode = addNode({
+            id: paletteId,
+            name: paletteLabel,
+            column: 4,
+            layer: "palette",
+            groupId: "palette",
+            nodeType: "palette",
+            value: 1,
+            color: getSankeyColumnColor(4, palettePayload),
+            isEditable: true,
+            isActive: true,
+            payload: palettePayload || {},
+            alternatives: getPaletteAlternatives(paletteId),
+            graphRefId: colorSchemeNode?.graphRefId || colorSchemeNode?.id || "",
+        });
+    }
+
+    const outputNode = addNode({
+        id: getSankeySafeId(["output", galleryItem?.id || "active"]),
+        name: `Infographic #${String(galleryItem?.id || "N").slice(-4)}`,
+        column: 5,
+        layer: "output",
+        groupId: "output",
+        nodeType: "output",
+        value: 1,
+        color: getSankeyColumnColor(5),
+        isEditable: false,
+        isActive: true,
+        payload: { imgUrl: galleryItem?.imgUrl || "" },
+        alternatives: [],
+        graphRefId: "",
+    });
+
+    insightNodes.forEach((insightNode) => {
+        bottomNodes.forEach((bottomNode) => {
+            addLink(insightNode.id, bottomNode.id, 1, 1);
+        });
+    });
+
+    const getNodeGraphIds = (node) => {
+        const ids = [];
+        if (node.graphRefId) ids.push(node.graphRefId);
+        ids.push(node.id);
+        return Array.from(new Set(ids));
+    };
+
+    bottomNodes.forEach((bottomNode) => {
+        middleNodes.forEach((middleNode) => {
+            const strength = getStrengthFromIds(getNodeGraphIds(bottomNode), getNodeGraphIds(middleNode));
+            if (!Number.isFinite(strength) || strength <= 0) return;
+            const s = Math.max(0, Math.min(1, Number(strength)));
+            const flowValue = Math.max(1, Math.round(1 + (s * 10)));
+            addLink(bottomNode.id, middleNode.id, flowValue, s);
+        });
+    });
+
+    middleNodes.forEach((middleNode) => {
+        topNodes.forEach((topNode) => {
+            const strength = getStrengthFromIds(getNodeGraphIds(middleNode), getNodeGraphIds(topNode));
+            if (!Number.isFinite(strength) || strength <= 0) return;
+            const s = Math.max(0, Math.min(1, Number(strength)));
+            const flowValue = Math.max(1, Math.round(1 + (s * 10)));
+            addLink(middleNode.id, topNode.id, flowValue, s);
+        });
+    });
+
+    if (colorSchemeNode && paletteNode) {
+        addLink(colorSchemeNode.id, paletteNode.id, 1, 1);
+    }
+
+    topNodes.forEach((topNode) => {
+        addLink(topNode.id, outputNode.id, 1, 1);
+    });
+    if (paletteNode) {
+        addLink(paletteNode.id, outputNode.id, 1, 1);
+    }
+
+    ensureSankeyColumns(nodes);
+    repairIsolatedSankeyNodes(nodes, links);
+
+    return {
+        nodes,
+        links,
+        selections,
+        isAggregate: false,
+    };
+}
+
+function aggregateSankeyData(allGalleryItems, analysisContext = {}) {
+    const nodeMap = new Map();
+    const linkMap = new Map();
+
+    allGalleryItems.forEach((item) => {
+        const itemContext = getAnalysisContextForGalleryItem(item) || analysisContext;
+        const data = buildSankeyData(item, itemContext);
+
+        data.nodes.forEach((node) => {
+            if (!nodeMap.has(node.id)) {
+                nodeMap.set(node.id, {
+                    ...deepClone(node),
+                    alternatives: Array.isArray(node.alternatives) ? [...node.alternatives] : [],
+                });
+            } else {
+                const existing = nodeMap.get(node.id);
+                existing.value += Number(node.value || 1);
+            }
+        });
+
+        data.links.forEach((link) => {
+            const key = getSankeyLinkKey(link.source, link.target);
+            if (!linkMap.has(key)) {
+                linkMap.set(key, {
+                    source: link.source,
+                    target: link.target,
+                    value: Number(link.value || 1),
+                    _weight: Number(link.value || 1),
+                    _strengthWeighted: Number(link.strength || 0) * Number(link.value || 1),
+                    strength: Number(link.strength || 0),
+                    isHighlighted: false,
+                });
+                return;
+            }
+
+            const existing = linkMap.get(key);
+            existing.value += Number(link.value || 1);
+            existing._weight += Number(link.value || 1);
+            existing._strengthWeighted += Number(link.strength || 0) * Number(link.value || 1);
+        });
+    });
+
+    const nodes = Array.from(nodeMap.values());
+    const links = Array.from(linkMap.values()).map((link) => {
+        const weight = Math.max(1, Number(link._weight || 1));
+        const strength = Number(link._strengthWeighted || 0) / weight;
+        return {
+            source: link.source,
+            target: link.target,
+            value: Number(link.value || 1),
+            strength: Math.max(0, Math.min(1, strength)),
+            isHighlighted: false,
+        };
+    });
+
+    const values = links.map((link) => Number(link.value || 0));
+    const minValue = values.length ? Math.min(...values) : 1;
+    const maxValue = values.length ? Math.max(...values) : 1;
+    links.forEach((link) => {
+        if (maxValue === minValue) {
+            link.value = 6;
+            return;
+        }
+        const normalized = (Number(link.value || 0) - minValue) / (maxValue - minValue);
+        link.value = Math.round(2 + normalized * 10);
+    });
+
+    ensureSankeyColumns(nodes);
+    repairIsolatedSankeyNodes(nodes, links);
+
+    return {
+        nodes,
+        links,
+        selections: {},
+        isAggregate: true,
+    };
+}
+
+function traceFullPath(hoveredNodeId, sankeyData) {
+    const upstreamIds = new Set();
+    const downstreamIds = new Set();
+
+    const getSourceIdLocal = (link) => (typeof link.source === "object" ? link.source.id : link.source);
+    const getTargetIdLocal = (link) => (typeof link.target === "object" ? link.target.id : link.target);
+
+    const upstreamQueue = [hoveredNodeId];
+    while (upstreamQueue.length) {
+        const current = upstreamQueue.shift();
+        sankeyData.links.forEach((link) => {
+            const sourceId = getSourceIdLocal(link);
+            const targetId = getTargetIdLocal(link);
+            if (targetId === current && !upstreamIds.has(sourceId) && sourceId !== hoveredNodeId) {
+                upstreamIds.add(sourceId);
+                upstreamQueue.push(sourceId);
+            }
+        });
+    }
+
+    const downstreamQueue = [hoveredNodeId];
+    while (downstreamQueue.length) {
+        const current = downstreamQueue.shift();
+        sankeyData.links.forEach((link) => {
+            const sourceId = getSourceIdLocal(link);
+            const targetId = getTargetIdLocal(link);
+            if (sourceId === current && !downstreamIds.has(targetId) && targetId !== hoveredNodeId) {
+                downstreamIds.add(targetId);
+                downstreamQueue.push(targetId);
+            }
+        });
+    }
+
+    const pathNodeIds = new Set([...upstreamIds, hoveredNodeId, ...downstreamIds]);
+    const pathLinkIds = new Set();
+    sankeyData.links.forEach((link) => {
+        const sourceId = getSourceIdLocal(link);
+        const targetId = getTargetIdLocal(link);
+        if (pathNodeIds.has(sourceId) && pathNodeIds.has(targetId)) {
+            pathLinkIds.add(getSankeyLinkKey(sourceId, targetId));
+        }
+    });
+
+    return { pathNodeIds, pathLinkIds };
+}
+
+function forceColumnPositions(sankeyLayout, width, margins, nodeWidth = 20) {
+    const colWidth = (width - margins.left - margins.right) / Math.max(1, SANKEY_COLUMN_COUNT - 1);
+    sankeyLayout.nodes.forEach((node) => {
+        const col = Math.max(0, Math.min(SANKEY_COLUMN_COUNT - 1, Number(node.column || 0)));
+        node.x0 = margins.left + (col * colWidth);
+        node.x1 = node.x0 + nodeWidth;
+    });
+}
+
+function projectSankeyBottomUp(sankeyLayout, chartHeight) {
+    sankeyLayout.nodes.forEach((node) => {
+        node.plotX0 = Number(node.y0 || 0);
+        node.plotX1 = Number(node.y1 || 0);
+        node.plotY0 = chartHeight - Number(node.x1 || 0);
+        node.plotY1 = chartHeight - Number(node.x0 || 0);
+    });
+
+    sankeyLayout.links.forEach((link) => {
+        link.plotX0 = Number(link.y0 || 0);
+        link.plotX1 = Number(link.y1 || 0);
+        link.plotY0 = chartHeight - Number(link.source?.x1 || 0);
+        link.plotY1 = chartHeight - Number(link.target?.x0 || 0);
+    });
+}
+
+function sankeyLinkVerticalPath(link) {
+    const x0 = Number(link.plotX0 || 0);
+    const y0 = Number(link.plotY0 || 0);
+    const x1 = Number(link.plotX1 || 0);
+    const y1 = Number(link.plotY1 || 0);
+    const yMid = y0 + ((y1 - y0) * 0.5);
+    return `M${x0},${y0}C${x0},${yMid} ${x1},${yMid} ${x1},${y1}`;
+}
+
+function fitSankeySceneToViewport(sceneSel, chartWidth, chartHeight, padding = 8) {
+    const sceneNode = sceneSel?.node?.();
+    if (!sceneNode || typeof sceneNode.getBBox !== "function") return;
+
+    const bbox = sceneNode.getBBox();
+    if (!Number.isFinite(bbox.width) || !Number.isFinite(bbox.height) || bbox.width <= 0 || bbox.height <= 0) return;
+
+    const innerW = Math.max(1, chartWidth - (padding * 2));
+    const innerH = Math.max(1, chartHeight - (padding * 2));
+    const scale = Math.min(innerW / bbox.width, innerH / bbox.height);
+    if (!Number.isFinite(scale) || scale <= 0) return;
+
+    const tx = padding + ((innerW - (bbox.width * scale)) / 2) - (bbox.x * scale);
+    const ty = padding + ((innerH - (bbox.height * scale)) / 2) - (bbox.y * scale);
+    sceneSel.attr("transform", `translate(${tx},${ty}) scale(${scale})`);
+}
+
+function closeSankeyFloatingPanel() {
+    if (typeof sankeyFloatingPanelCleanup === "function") {
+        sankeyFloatingPanelCleanup();
+    }
+    sankeyFloatingPanelCleanup = null;
+}
+
+function mountSankeyFloatingPanel(containerElement, panelEl, event) {
+    closeSankeyFloatingPanel();
+
+    panelEl.classList.add("sankey-floating-panel");
+    containerElement.appendChild(panelEl);
+    const rect = containerElement.getBoundingClientRect();
+    const maxLeft = Math.max(8, containerElement.clientWidth - panelEl.offsetWidth - 8);
+    const maxTop = Math.max(8, containerElement.clientHeight - panelEl.offsetHeight - 8);
+    const left = Math.min(maxLeft, Math.max(8, event.clientX - rect.left + 10));
+    const top = Math.min(maxTop, Math.max(8, event.clientY - rect.top - 20));
+
+    panelEl.style.left = `${left}px`;
+    panelEl.style.top = `${top}px`;
+
+    const handleDocClick = (evt) => {
+        if (!panelEl.contains(evt.target)) {
+            closeSankeyFloatingPanel();
+        }
+    };
+    const handleKeydown = (evt) => {
+        if (evt.key === "Escape") {
+            closeSankeyFloatingPanel();
+        }
+    };
+
+    setTimeout(() => {
+        document.addEventListener("mousedown", handleDocClick, true);
+        document.addEventListener("keydown", handleKeydown, true);
+    }, 0);
+
+    sankeyFloatingPanelCleanup = () => {
+        document.removeEventListener("mousedown", handleDocClick, true);
+        document.removeEventListener("keydown", handleKeydown, true);
+        panelEl.remove();
+    };
+}
+
+function computeAlternativeCompatibility(altNode, otherSelectedNodes) {
+    const sourceIds = [altNode.graphRefId, altNode.id].filter(Boolean);
+    let score = 0;
+
+    otherSelectedNodes.forEach((otherNode) => {
+        const targetIds = [otherNode.graphRefId, otherNode.id].filter(Boolean);
+        const strength = getStrengthFromIds(sourceIds, targetIds);
+        if (Number.isFinite(strength)) score += strength;
+    });
+
+    return score;
+}
+
+function compatibilityBarColor(ratio) {
+    if (ratio >= 0.66) return "#10B981";
+    if (ratio >= 0.33) return "#F59E0B";
+    return "#EF4444";
+}
+
+function applySelectionReplacement(currentSelections, oldNode, newNode) {
+    const updated = deepClone(currentSelections || {});
+    if (!updated.bottom_layer) updated.bottom_layer = {};
+    if (!updated.middle_layer) updated.middle_layer = {};
+    if (!updated.top_layer) updated.top_layer = {};
+
+    if (oldNode.nodeType === "design_element") {
+        const layer = oldNode.layer;
+        const groupId = oldNode.groupId;
+        if (!updated[layer]) updated[layer] = {};
+
+        if (groupId === "visual_assets") {
+            const payload = (newNode.payload && typeof newNode.payload === "object")
+                ? deepClone(newNode.payload)
+                : null;
+            updated[layer][groupId] = payload || {
+                category: newNode.groupId || "Visual Asset",
+                suggestion: newNode.name,
+                keywords: newNode.name,
+            };
+            return updated;
+        }
+
+        if (groupId === "color_scheme") {
+            const palettePayload = normalizePalettePayload(newNode.payload || {}, newNode.name);
+            updated[layer][groupId] = palettePayload || newNode.name;
+            return updated;
+        }
+
+        updated[layer][groupId] = newNode.name;
+        return updated;
+    }
+
+    if (oldNode.nodeType === "palette") {
+        const palettePayload = normalizePalettePayload(newNode.payload || {}, newNode.name);
+        updated.middle_layer.color_scheme = palettePayload || newNode.name;
+        return updated;
+    }
+
+    return updated;
+}
+
+function replaceNodeAndRegenerate(oldNode, newNode, galleryItem, context = {}) {
+    if (!galleryItem) return;
+    const baseSelections = getGalleryWorkingSelections(galleryItem);
+    const newSelections = applySelectionReplacement(baseSelections, oldNode, newNode);
+    galleryItem.pendingSelections = newSelections;
+    galleryItem.isPendingRegenerate = true;
+    galleryItem.regenerateError = "";
+
+    if (!galleryItem.analysisSnapshot) {
+        galleryItem.analysisSnapshot = getAnalysisContextForGalleryItem(galleryItem);
+    }
+    if (oldNode.nodeType === "palette") {
+        const palettePayload = normalizePalettePayload(newNode.payload || {}, newNode.name);
+        galleryItem.analysisSnapshot.paletteMeta = palettePayload || galleryItem.analysisSnapshot.paletteMeta || null;
+    }
+
+    if (context.containerElement) {
+        const nodeEl = Array.from(context.containerElement.querySelectorAll("[data-node-id]"))
+            .find((el) => el.getAttribute("data-node-id") === oldNode.id);
+        if (nodeEl) nodeEl.classList.add("sankey-node-removing");
+        context.containerElement.querySelectorAll(".sankey-link").forEach((linkEl) => {
+            linkEl.classList.add("sankey-link-morphing");
+        });
+    }
+
+    closeSankeyFloatingPanel();
+    setTimeout(() => {
+        renderGalleryUI();
+    }, 220);
+}
+
+function hexToHsl(hex) {
+    const rgb = rgbTripletFromHex(hex);
+    if (!rgb) return null;
+    const [rRaw, gRaw, bRaw] = rgb;
+    const r = rRaw / 255;
+    const g = gRaw / 255;
+    const b = bRaw / 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const delta = max - min;
+
+    let h = 0;
+    if (delta !== 0) {
+        if (max === r) h = ((g - b) / delta) % 6;
+        else if (max === g) h = ((b - r) / delta) + 2;
+        else h = ((r - g) / delta) + 4;
+        h = Math.round(h * 60);
+        if (h < 0) h += 360;
+    }
+
+    const l = (max + min) / 2;
+    const s = delta === 0 ? 0 : delta / (1 - Math.abs(2 * l - 1));
+    return { h, s, l };
+}
+
+function computePaletteHarmonyScore(hexPalette) {
+    const colors = (hexPalette || []).map(hexToHsl).filter(Boolean);
+    if (colors.length < 2) return 1;
+
+    let matched = 0;
+    let total = 0;
+    for (let i = 0; i < colors.length; i += 1) {
+        for (let j = i + 1; j < colors.length; j += 1) {
+            total += 1;
+            const diffRaw = Math.abs(colors[i].h - colors[j].h);
+            const diff = Math.min(diffRaw, 360 - diffRaw);
+            const isComplementary = Math.abs(diff - 180) < 15;
+            const isTriadic = Math.abs(diff - 120) < 15;
+            const isAnalogous = diff < 30;
+            const isSplitComplementary = Math.abs(diff - 150) < 15;
+            if (isComplementary || isTriadic || isAnalogous || isSplitComplementary) {
+                matched += 1;
+            }
+        }
+    }
+
+    return total === 0 ? 1 : matched / total;
+}
+
+function editPaletteNode(paletteNode, event, context) {
+    const containerElement = context.containerElement;
+    if (!containerElement) return;
+
+    const initialHexPalette = paletteHexListFromPayload(paletteNode.payload).slice(0, 5);
+    const currentHexPalette = (initialHexPalette.length ? initialHexPalette : ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6"])
+        .map((hex) => (hex && /^#[0-9A-Fa-f]{6}$/.test(hex) ? hex.toUpperCase() : "#3B82F6"));
+
+    const panel = document.createElement("div");
+    panel.className = "sankey-palette-panel";
+
+    const title = document.createElement("div");
+    title.className = "sankey-panel-title";
+    title.textContent = "编辑配色";
+    panel.appendChild(title);
+
+    const swatchWrap = document.createElement("div");
+    swatchWrap.className = "sankey-palette-editor";
+    panel.appendChild(swatchWrap);
+
+    const harmonyText = document.createElement("div");
+    harmonyText.className = "sankey-harmony-text";
+    panel.appendChild(harmonyText);
+
+    const divider = document.createElement("div");
+    divider.className = "sankey-panel-divider";
+    divider.textContent = "— 或选择预设 —";
+    panel.appendChild(divider);
+
+    const presetWrap = document.createElement("div");
+    presetWrap.className = "sankey-palette-presets";
+    panel.appendChild(presetWrap);
+
+    const actionRow = document.createElement("div");
+    actionRow.className = "sankey-panel-actions";
+    panel.appendChild(actionRow);
+
+    const confirmBtn = document.createElement("button");
+    confirmBtn.className = "sankey-panel-btn primary";
+    confirmBtn.textContent = "应用";
+    actionRow.appendChild(confirmBtn);
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.className = "sankey-panel-btn";
+    cancelBtn.textContent = "取消";
+    actionRow.appendChild(cancelBtn);
+
+    const refreshHarmony = () => {
+        const score = computePaletteHarmonyScore(currentHexPalette);
+        harmonyText.textContent = `Harmony: ${score.toFixed(3)}`;
+    };
+
+    const renderSwatches = () => {
+        swatchWrap.innerHTML = "";
+        currentHexPalette.forEach((hex, index) => {
+            const slot = document.createElement("label");
+            slot.className = "sankey-palette-slot";
+
+            const box = document.createElement("span");
+            box.className = "sankey-palette-slot-color";
+            box.style.background = hex;
+            slot.appendChild(box);
+
+            const picker = document.createElement("input");
+            picker.type = "color";
+            picker.value = hex;
+            picker.addEventListener("input", () => {
+                currentHexPalette[index] = picker.value.toUpperCase();
+                box.style.background = currentHexPalette[index];
+                refreshHarmony();
+            });
+            slot.appendChild(picker);
+            swatchWrap.appendChild(slot);
+        });
+        refreshHarmony();
+    };
+
+    const presets = getPaletteAlternatives(paletteNode.id);
+    if (!presets.length) {
+        const empty = document.createElement("div");
+        empty.className = "sankey-empty-text";
+        empty.textContent = "没有可用预设";
+        presetWrap.appendChild(empty);
+    } else {
+        presets.forEach((preset) => {
+            const presetPayload = normalizePalettePayload(preset.payload || {}, preset.name);
+            if (!presetPayload) return;
+            const hexes = paletteHexListFromPayload(presetPayload).slice(0, 5);
+            if (!hexes.length) return;
+
+            const row = document.createElement("button");
+            row.type = "button";
+            row.className = "sankey-preset-row";
+            row.innerHTML = `
+                <span class="sankey-preset-name">${escapeHtml(shortSankeyLabel(preset.name, 14))}</span>
+                <span class="sankey-preset-swatches">${hexes.map((hex) => `<i style="background:${hex}"></i>`).join("")}</span>
+            `;
+            row.addEventListener("click", () => {
+                for (let i = 0; i < Math.min(5, hexes.length); i += 1) {
+                    currentHexPalette[i] = hexes[i].toUpperCase();
+                }
+                renderSwatches();
+            });
+            presetWrap.appendChild(row);
+        });
+    }
+
+    confirmBtn.addEventListener("click", () => {
+        const paletteTriplets = currentHexPalette
+            .map((hex) => rgbTripletFromHex(hex))
+            .filter(Boolean);
+        const harmonyScore = computePaletteHarmonyScore(currentHexPalette);
+        replaceNodeAndRegenerate(paletteNode, {
+            id: getSankeySafeId(["palette_custom", Date.now()]),
+            name: "Custom Palette",
+            nodeType: "palette",
+            payload: {
+                type: "palette",
+                label: "Custom Palette",
+                source_label: "sankey_editor",
+                palette: paletteTriplets,
+                harmony_score: harmonyScore,
+            },
+            graphRefId: "",
+        }, context.galleryItem, context);
+    });
+
+    cancelBtn.addEventListener("click", () => {
+        closeSankeyFloatingPanel();
+    });
+
+    renderSwatches();
+    mountSankeyFloatingPanel(containerElement, panel, event);
+}
+
+function showAlternativesPanel(clickedNode, event, context) {
+    const containerElement = context.containerElement;
+    if (!containerElement) return;
+
+    let alternatives = Array.isArray(clickedNode.alternatives) ? [...clickedNode.alternatives] : [];
+    if (!alternatives.length) {
+        alternatives = getAlternativesForNode(clickedNode.layer, clickedNode.groupId, clickedNode.id);
+    }
+    if (!alternatives.length) {
+        const panel = document.createElement("div");
+        panel.className = "sankey-alternatives-panel";
+        panel.innerHTML = `
+            <div class="sankey-panel-title">替换: ${escapeHtml(clickedNode.groupId)}</div>
+            <div class="sankey-empty-text">暂无可替换候选</div>
+        `;
+        mountSankeyFloatingPanel(containerElement, panel, event);
+        return;
+    }
+
+    const otherSelectedNodes = (context.sankeyData?.nodes || []).filter((node) => node.id !== clickedNode.id);
+    alternatives.forEach((alt) => {
+        alt.compatibilityScore = computeAlternativeCompatibility(alt, otherSelectedNodes);
+    });
+    alternatives.sort((a, b) => Number(b.compatibilityScore || 0) - Number(a.compatibilityScore || 0));
+
+    const maxScore = Math.max(0.0001, ...alternatives.map((alt) => Number(alt.compatibilityScore || 0)));
+    const panel = document.createElement("div");
+    panel.className = "sankey-alternatives-panel";
+
+    const title = document.createElement("div");
+    title.className = "sankey-panel-title";
+    title.textContent = `替换: ${clickedNode.groupId}`;
+    panel.appendChild(title);
+
+    const list = document.createElement("div");
+    list.className = "sankey-alt-list";
+    panel.appendChild(list);
+
+    alternatives.slice(0, 6).forEach((alt) => {
+        const score = Number(alt.compatibilityScore || 0);
+        const ratio = Math.max(0, Math.min(1, score / maxScore));
+        const row = document.createElement("div");
+        row.className = "sankey-alt-row";
+        row.innerHTML = `
+            <div class="sankey-alt-score"><span style="width:${Math.round(ratio * 100)}%; background:${compatibilityBarColor(ratio)};"></span></div>
+            <div class="sankey-alt-name">${escapeHtml(shortSankeyLabel(alt.name, 10))}</div>
+            <button type="button" class="sankey-alt-pick" aria-label="pick">→</button>
+        `;
+        row.querySelector(".sankey-alt-pick")?.addEventListener("click", () => {
+            replaceNodeAndRegenerate(clickedNode, alt, context.galleryItem, context);
+        });
+        list.appendChild(row);
+    });
+
+    mountSankeyFloatingPanel(containerElement, panel, event);
+}
+
+function renderSankeyDiagram(containerElement, galleryItem, analysisContext, options = {}) {
+    if (!containerElement) return;
+    closeSankeyFloatingPanel();
+    containerElement.innerHTML = "";
+
+    if (typeof d3 === "undefined" || typeof d3.sankey !== "function") {
+        containerElement.innerHTML = '<div class="center-msg">d3-sankey not loaded</div>';
+        return;
+    }
+
+    const isAggregate = Boolean(options.aggregate);
+    const sankeySource = isAggregate
+        ? aggregateSankeyData(galleryData, analysisContext)
+        : buildSankeyData(galleryItem, analysisContext);
+
+    if (!sankeySource.nodes.length || !sankeySource.links.length) {
+        containerElement.innerHTML = '<div class="center-msg">No Sankey data</div>';
+        return;
+    }
+
+    const measuredWidth = Math.floor(containerElement.clientWidth || containerElement.getBoundingClientRect().width || 0);
+    const measuredHeight = Math.floor(containerElement.clientHeight || containerElement.getBoundingClientRect().height || 0);
+    if (measuredWidth < 40 || measuredHeight < 40) {
+        containerElement.innerHTML = '<div class="center-msg">Sankey graph is preparing layout...</div>';
+        requestAnimationFrame(() => {
+            const nextWidth = Math.floor(containerElement.clientWidth || 0);
+            const nextHeight = Math.floor(containerElement.clientHeight || 0);
+            if (nextWidth >= 40 && nextHeight >= 40) {
+                renderSankeyDiagram(containerElement, galleryItem, analysisContext, options);
+            }
+        });
+        return;
+    }
+
+    const viewportWidth = Math.max(320, measuredWidth);
+    const viewportHeight = Math.max(240, measuredHeight);
+    const nodesPerColumn = Array.from({ length: SANKEY_COLUMN_COUNT }, () => 0);
+    sankeySource.nodes.forEach((node) => {
+        const col = Math.max(0, Math.min(SANKEY_COLUMN_COUNT - 1, Number(node.column || 0)));
+        nodesPerColumn[col] += 1;
+    });
+    const maxNodesInColumn = Math.max(1, ...nodesPerColumn);
+
+    const chartWidth = viewportWidth;
+    const chartHeight = viewportHeight;
+    const labelGutter = Math.max(56, Math.min(132, Math.floor(chartWidth * 0.18)));
+    const margins = { top: 14, right: labelGutter, bottom: 14, left: labelGutter };
+    const nodeWidth = Math.max(10, Math.min(18, Math.floor(chartWidth / 88)));
+    const innerHeight = Math.max(120, chartHeight - margins.top - margins.bottom);
+    const nodePadding = Math.max(8, Math.min(22, Math.floor(innerHeight / (maxNodesInColumn + 1))));
+
+    const svg = d3.select(containerElement)
+        .append("svg")
+        .attr("class", "sankey-svg")
+        .attr("width", "100%")
+        .attr("height", "100%")
+        .attr("viewBox", `0 0 ${chartWidth} ${chartHeight}`)
+        .attr("preserveAspectRatio", "xMidYMid meet");
+
+    const defs = svg.append("defs");
+    svg.append("rect")
+        .attr("x", 0)
+        .attr("y", 0)
+        .attr("width", chartWidth)
+        .attr("height", chartHeight)
+        .attr("fill", "#ECECEC");
+    const root = svg.append("g").attr("class", "sankey-scene");
+
+    const titleLayer = root.append("g").attr("class", "sankey-column-titles");
+    const colWidth = (chartWidth - margins.left - margins.right) / Math.max(1, SANKEY_COLUMN_COUNT - 1);
+    SANKEY_COLUMN_TITLES.forEach((title, idx) => {
+        titleLayer.append("text")
+            .attr("x", margins.left + (idx * colWidth))
+            .attr("y", 11)
+            .attr("text-anchor", "middle")
+            .text(shortSankeyLabel(title, 18));
+    });
+
+    const sankeyGenerator = d3.sankey()
+        .nodeId((d) => d.id)
+        .nodeWidth(nodeWidth)
+        .nodePadding(nodePadding)
+        .nodeAlign((node) => Math.max(0, Math.min(SANKEY_COLUMN_COUNT - 1, Number(node.column || 0))))
+        .nodeSort((a, b) => {
+            if (a.column !== b.column) return a.column - b.column;
+            return Number(b.value || 0) - Number(a.value || 0);
+        })
+        .extent([
+            [margins.left, margins.top + 8],
+            [chartWidth - margins.right, chartHeight - margins.bottom],
+        ]);
+
+    const sankeyInput = {
+        nodes: sankeySource.nodes.map((node) => ({ ...deepClone(node) })),
+        links: sankeySource.links.map((link) => ({ ...deepClone(link) })),
+    };
+
+    const sankeyLayout = sankeyGenerator(sankeyInput);
+    forceColumnPositions(sankeyLayout, chartWidth, margins, nodeWidth);
+    if (typeof sankeyGenerator.update === "function") {
+        sankeyGenerator.update(sankeyLayout);
+    }
+
+    const rawLinkWidths = sankeyLayout.links
+        .map((link) => Number(link.width || link.value || 1))
+        .filter((widthValue) => Number.isFinite(widthValue) && widthValue > 0);
+    const rawLinkMin = rawLinkWidths.length ? Math.min(...rawLinkWidths) : 1;
+    const rawLinkMax = rawLinkWidths.length ? Math.max(...rawLinkWidths) : 1;
+    const viewportScale = Math.max(0.84, Math.min(1.36, Math.min(viewportWidth, viewportHeight) / 460));
+    const minFlowStroke = 1.4 * viewportScale;
+    const maxFlowStroke = 10.8 * viewportScale;
+    const getAdaptiveFlowWidth = (link) => {
+        const raw = Number(link.width || link.value || 1);
+        const strength = Math.max(0, Math.min(1, Number(link.strength || 0.5)));
+        if (!Number.isFinite(raw)) return minFlowStroke;
+
+        if (rawLinkMax <= rawLinkMin) {
+            const fallback = (raw * viewportScale) * (0.9 + (strength * 0.3));
+            return Math.max(minFlowStroke, Math.min(maxFlowStroke * 1.25, fallback));
+        }
+
+        const ratio = Math.pow((raw - rawLinkMin) / (rawLinkMax - rawLinkMin), 0.78);
+        const widthByValue = minFlowStroke + ((maxFlowStroke - minFlowStroke) * ratio);
+        const weightedWidth = widthByValue * (0.9 + (strength * 0.35));
+        return Math.max(minFlowStroke, Math.min(maxFlowStroke * 1.25, weightedWidth));
+    };
+
+    sankeyLayout.links.forEach((link, idx) => {
+        const sourceColor = link.source?.color || getSankeyColumnColor(Number(link.source?.column || 0), link.source?.payload);
+        const targetColor = link.target?.color || getSankeyColumnColor(Number(link.target?.column || 0), link.target?.payload);
+        const sourceSoft = softenHexColor(sourceColor, 0.56);
+        const targetSoft = softenHexColor(targetColor, 0.56);
+        const gradientId = `sankey-grad-${galleryItem?.id || "agg"}-${idx}`;
+        link._gradientId = gradientId;
+        link._linkKey = getSankeyLinkKey(link.source.id, link.target.id);
+
+        const gradient = defs.append("linearGradient")
+            .attr("id", gradientId)
+            .attr("gradientUnits", "userSpaceOnUse")
+            .attr("x1", Number(link.source?.x1 || link.x0 || 0))
+            .attr("x2", Number(link.target?.x0 || link.x1 || 0))
+            .attr("y1", Number(link.y0 || 0))
+            .attr("y2", Number(link.y1 || 0));
+
+        gradient.append("stop")
+            .attr("offset", "0%")
+            .attr("stop-color", sourceSoft)
+            .attr("stop-opacity", 0.7);
+        gradient.append("stop")
+            .attr("offset", "100%")
+            .attr("stop-color", targetSoft)
+            .attr("stop-opacity", 0.7);
+    });
+
+    const linkSel = root.append("g")
+        .attr("fill", "none")
+        .selectAll("path")
+        .data(sankeyLayout.links)
+        .join("path")
+        .attr("class", "sankey-link")
+        .attr("d", d3.sankeyLinkHorizontal())
+        .attr("stroke", (d) => `url(#${d._gradientId})`)
+        .attr("stroke-opacity", 0.56)
+        .attr("stroke-width", (d) => getAdaptiveFlowWidth(d));
+
+    const nodeSel = root.append("g")
+        .selectAll("g")
+        .data(sankeyLayout.nodes, (d) => d.id)
+        .join("g")
+        .attr("class", (d) => `sankey-node ${d.isEditable && !isAggregate ? "is-editable" : "is-readonly"}`)
+        .attr("data-node-id", (d) => d.id)
+        .on("mouseenter", (_, hoveredNode) => {
+            const traced = traceFullPath(hoveredNode.id, sankeyLayout);
+            nodeSel.classed("is-path", (node) => traced.pathNodeIds.has(node.id));
+            nodeSel.classed("is-dim", (node) => !traced.pathNodeIds.has(node.id));
+            linkSel.classed("is-path", (link) => traced.pathLinkIds.has(link._linkKey));
+            linkSel.classed("is-dim", (link) => !traced.pathLinkIds.has(link._linkKey));
+        })
+        .on("mouseleave", () => {
+            nodeSel.classed("is-path", false).classed("is-dim", false);
+            linkSel.classed("is-path", false).classed("is-dim", false);
+        })
+        .on("click", (event, node) => {
+            event.stopPropagation();
+            if (isAggregate || !node.isEditable) return;
+            const context = {
+                galleryItem,
+                analysisContext,
+                sankeyData: sankeyLayout,
+                containerElement,
+            };
+            if (node.nodeType === "palette") {
+                editPaletteNode(node, event, context);
+            } else {
+                showAlternativesPanel(node, event, context);
+            }
+        });
+
+    nodeSel.append("rect")
+        .attr("class", "sankey-node-shape")
+        .attr("x", (d) => d.x0)
+        .attr("y", (d) => d.y0)
+        .attr("width", (d) => Math.max(8, d.x1 - d.x0))
+        .attr("height", (d) => Math.max(4, d.y1 - d.y0))
+        .attr("rx", 1)
+        .attr("ry", 1)
+        .attr("fill", (d) => d.color || getSankeyColumnColor(Number(d.column || 0), d.payload))
+        .attr("fill-opacity", 0.96)
+        .attr("stroke", "rgba(255, 255, 255, 0.55)")
+        .classed("sankey-output-pending", (d) => Boolean(!isAggregate && d.nodeType === "output" && galleryItem?.isPendingRegenerate));
+
+    nodeSel.filter((d) => d.isEditable && !isAggregate)
+        .append("path")
+        .attr("class", "sankey-pencil")
+        .attr("d", (d) => {
+            const cx = (d.x0 + d.x1) / 2;
+            const cy = (d.y0 + d.y1) / 2;
+            return `M${cx - 3},${cy - 6} l4,-2 l2,2 l-4,2 z`;
+        });
+
+    root.append("g")
+        .attr("class", "sankey-label-layer")
+        .selectAll("text")
+        .data(sankeyLayout.nodes)
+        .join("text")
+        .attr("class", "sankey-label")
+        .attr("x", (d) => {
+            const col = Number(d.column || 0);
+            if (col === 0) return d.x0 - 7;
+            return d.x1 + 7;
+        })
+        .attr("y", (d) => ((d.y0 + d.y1) / 2))
+        .attr("dy", "0.32em")
+        .attr("text-anchor", (d) => (Number(d.column || 0) === 0 ? "end" : "start"))
+        .text((d) => {
+            const col = Number(d.column || 0);
+            return shortSankeyLabel(d.name, col === SANKEY_COLUMN_COUNT - 1 ? 16 : 14);
+        });
+
+    if (!isAggregate) {
+        d3.select(containerElement).on("click", () => {
+            closeSankeyFloatingPanel();
+        });
+    }
+}
+
+function renderGalleryUI() {
+    const tabsContainer = document.getElementById("galleryTabs");
+    const viewContainer = document.getElementById("galleryView");
+    if (!tabsContainer || !viewContainer) return;
+
+    closeSankeyFloatingPanel();
+
+    if (!galleryData.length) {
+        galleryViewMode = "single";
+        activeGalleryIndex = 0;
+        tabsContainer.innerHTML = "";
+        viewContainer.innerHTML = '<div class="center-msg">Generated infographics will appear here</div>';
+        if (isDesignTabActive()) {
+            requestAnimationFrame(() => {
+                renderDesignSankey();
+            });
+        }
+        return;
+    }
+
+    if (activeGalleryIndex >= galleryData.length) {
+        activeGalleryIndex = galleryData.length - 1;
+    }
+    if (activeGalleryIndex < 0) activeGalleryIndex = 0;
+
+    const itemTabs = galleryData
+        .map((item, idx) => {
+            const active = idx === activeGalleryIndex;
+            return `<div class="gallery-tab ${active ? "active" : ""}" onclick="switchGalleryTab(${idx})">Scheme ${galleryData.length - idx}</div>`;
+        })
+        .join("");
+    tabsContainer.innerHTML = itemTabs;
+
+    galleryViewMode = "single";
+    const activeItem = galleryData[activeGalleryIndex];
+    const canRegenerate = Boolean(activeItem?.pendingSelections && activeItem?.isPendingRegenerate);
+    const regenerateText = activeItem?.isRegenerating
+        ? "Regenerating..."
+        : (activeItem?.regenerateError ? "Retry Regenerate" : "Regenerate");
+
+    viewContainer.innerHTML = `
+        <div class="gallery-item">
+            <div class="gallery-img-container">
+                <img src="${activeItem.imgUrl}" class="gallery-img" alt="poster">
+            </div>
+            <div class="gallery-actions">
+                <a href="${activeItem.imgUrl}" download="infographic_${activeItem.id}.png" class="gallery-action-link">Download</a>
+                <button class="gallery-action-btn ${canRegenerate ? "primary" : ""}" ${(!canRegenerate || activeItem?.isRegenerating) ? "disabled" : ""} onclick="regenerateGalleryItem(${activeGalleryIndex})">${regenerateText}</button>
+                ${canRegenerate ? `<button class="gallery-action-btn" onclick="revertGalleryPending(${activeGalleryIndex})">Undo</button>` : ""}
+            </div>
+        </div>
+    `;
+
+    if (isDesignTabActive()) {
+        requestAnimationFrame(() => {
+            renderDesignSankey();
+        });
+    }
+}
+
+function addToGallery(imgUrl, usedSelections) {
+    galleryData.unshift({
+        id: Date.now(),
+        imgUrl,
+        selections: deepClone(usedSelections || {}),
+        pendingSelections: null,
+        isPendingRegenerate: false,
+        isRegenerating: false,
+        regenerateError: "",
+        analysisSnapshot: {
+            query: document.getElementById("queryInput")?.value || "",
+            description: document.getElementById("tableDesc")?.value || "",
+            analysisAnswer: currentAnalysisAnswer || "",
+            chartData: currentChartData ? deepClone(currentChartData) : null,
+            paletteMeta: selectedPaletteMeta ? deepClone(selectedPaletteMeta) : null,
+        },
+    });
+
+    galleryViewMode = "single";
+    activeGalleryIndex = 0;
+    renderGalleryUI();
+}
+
+window.switchGalleryTab = function(index) {
+    galleryViewMode = "single";
+    activeGalleryIndex = Math.max(0, Math.min(galleryData.length - 1, Number(index) || 0));
+    renderGalleryUI();
+};
+
+window.switchGalleryAggregate = function() {
+    if (!galleryData.length) return;
+    galleryViewMode = "single";
+    activeGalleryIndex = 0;
+    renderGalleryUI();
+};
+
+async function regenerateGalleryItem(index) {
+    const item = galleryData[index];
+    if (!item) return;
+
+    const pendingSelections = item.pendingSelections ? deepClone(item.pendingSelections) : null;
+    if (!pendingSelections) {
+        alert("No pending changes to regenerate.");
+        return;
+    }
+
+    const context = getAnalysisContextForGalleryItem(item);
+    item.isRegenerating = true;
+    item.regenerateError = "";
+    renderGalleryUI();
+
+    try {
+        const res = await fetch("/infographic/generate_final", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                selections: pendingSelections,
+                chart_source: context.chartData,
+                description: context.description || "",
+                query: context.query || "",
+                analysis_result: context.analysisAnswer || "",
+            }),
+        });
+
+        const data = await res.json();
+        if (data.status !== "success") {
+            throw new Error(data.error || "Regenerate failed");
+        }
+
+        item.imgUrl = data.image_url;
+        item.selections = deepClone(pendingSelections);
+        item.pendingSelections = null;
+        item.isPendingRegenerate = false;
+        item.regenerateError = "";
+    } catch (err) {
+        item.regenerateError = String(err);
+        alert(`Regenerate error: ${err}`);
+    } finally {
+        item.isRegenerating = false;
+        renderGalleryUI();
+    }
+}
+
+window.regenerateGalleryItem = regenerateGalleryItem;
+
+window.revertGalleryPending = function(index) {
+    const item = galleryData[index];
+    if (!item) return;
+    item.pendingSelections = null;
+    item.isPendingRegenerate = false;
+    item.regenerateError = "";
+    renderGalleryUI();
+};
+
 function bindEvents() {
     const btnLayoutForce = document.getElementById("btnLayoutForce");
     const btnLayoutSom = document.getElementById("btnLayoutSom");
@@ -2045,9 +3674,19 @@ function bindEvents() {
     window.addEventListener("resize", () => {
         if (graphLayoutMode === "som") {
             if (somGraphData) renderSomStep();
+            if (isDesignTabActive()) {
+                requestAnimationFrame(() => {
+                    renderDesignSankey();
+                });
+            }
             return;
         }
         if (forceGraphData) renderForceStep();
+        if (isDesignTabActive()) {
+            requestAnimationFrame(() => {
+                renderDesignSankey();
+            });
+        }
     });
 
     syncForceJsonUploadState();

@@ -9,6 +9,7 @@
     <script src="https://cdn.jsdelivr.net/npm/vega-lite@5"></script>
     <script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
     <script src="https://cdn.staticfile.net/d3/7.8.5/d3.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3-sankey/0.12.3/d3-sankey.min.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='stylev2.css') }}">
 </head>
 <body>
@@ -166,7 +167,16 @@
                 </div>
 
                 <div id="tab-design" class="tab-content">
-                    <div id="designSelectionSummary" class="center-msg">Build force graph and select nodes first</div>
+                    <div id="designSelectionSummary">Build force graph and select nodes first</div>
+                    <div class="design-sankey-panel">
+                        <div class="design-sankey-head">
+                            <span>sankey graph</span>
+                            <span id="designSankeySchemeLabel">No Scheme</span>
+                        </div>
+                        <div id="designSankeyContainer" class="design-sankey-container">
+                            <div class="center-msg">Generate and select a scheme first</div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </aside>
