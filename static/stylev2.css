@@ -1059,40 +1059,37 @@
         }
 
         .sankey-column-titles-v text {
-            font-size: 8.5px;
+            font-size: 10px;
             font-weight: 700;
-            fill: #8a8f99;
             pointer-events: none;
-            letter-spacing: 0.3px;
-            font-family: 'JetBrains Mono', 'SF Mono', monospace;
+            letter-spacing: 0.4px;
+            font-family: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
         }
 
-        /* ── Links — soft, flowing appearance ── */
+        /* ── Links — smooth, wide, academic-style flows ── */
         .sankey-link {
             fill: none;
             stroke-linecap: round;
-            stroke-opacity: 0.48;
-            vector-effect: non-scaling-stroke;
+            stroke-opacity: 0.50;
             transition: stroke-opacity 0.25s ease, filter 0.25s ease;
         }
 
         .sankey-link.is-path {
-            stroke-opacity: 0.78;
-            filter: saturate(120%) brightness(1.02);
+            stroke-opacity: 0.82;
+            filter: saturate(130%) brightness(1.02);
         }
 
         .sankey-link.is-dim {
-            stroke-opacity: 0.06;
+            stroke-opacity: 0.04;
         }
 
-        /* ── Nodes — rounded, soft shadows ── */
+        /* ── Nodes — clean rounded rectangles ── */
         .sankey-node-shape {
-            stroke-width: 0.6px;
+            stroke-width: 0.5px;
             pointer-events: all;
-            vector-effect: non-scaling-stroke;
             transition: opacity 0.25s ease, stroke-width 0.25s ease,
                 filter 0.25s ease, fill-opacity 0.25s ease;
-            filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.06));
+            filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.08));
         }
 
         .sankey-node.is-editable {
@@ -1100,25 +1097,25 @@
         }
 
         .sankey-node.is-editable:hover .sankey-node-shape {
-            stroke-width: 1.2px;
-            stroke: rgba(0, 0, 0, 0.15);
-            filter: brightness(0.96) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+            stroke-width: 1px;
+            stroke: rgba(0, 0, 0, 0.12);
+            filter: brightness(0.97) drop-shadow(0 2px 5px rgba(0, 0, 0, 0.1));
         }
 
         .sankey-node.is-readonly {
             cursor: default;
-            opacity: 0.88;
+            opacity: 0.92;
         }
 
         .sankey-node.is-path .sankey-node-shape {
             opacity: 1;
-            stroke-width: 1.2px;
-            filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.12));
+            stroke-width: 1px;
+            filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.12));
         }
 
         .sankey-node.is-dim .sankey-node-shape {
-            opacity: 0.2;
-            filter: grayscale(72%);
+            opacity: 0.15;
+            filter: grayscale(80%);
         }
 
         /* ── Pencil edit icon ── */
@@ -1129,13 +1126,9 @@
             pointer-events: none;
         }
 
-        /* ── Labels ── */
+        /* ── Labels (hidden — tooltip used instead) ── */
         .sankey-label {
-            font-size: 9px;
-            font-weight: 600;
-            fill: #5b6270;
-            pointer-events: none;
-            font-family: 'Roboto', sans-serif;
+            display: none;
         }
 
         /* ── Pending output pulse ── */
