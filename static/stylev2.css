@@ -182,12 +182,12 @@
 
         #designSelectionSummary {
             flex: 0 0 auto;
-            max-height: 28%;
+            max-height: 22%;
             overflow-y: auto;
             border: 1px solid #e5e7eb;
             border-radius: 6px;
             background: #ffffff;
-            padding: 10px;
+            padding: 8px 10px;
         }
 
         .design-sankey-panel {
@@ -231,6 +231,31 @@
             display: flex;
             align-items: stretch;
             border-radius: 0 0 8px 8px;
+        }
+
+        /* --- Sankey Node Tooltip --- */
+        .sankey-node-tooltip {
+            position: absolute;
+            pointer-events: none;
+            z-index: 999;
+            background: rgba(30, 34, 44, 0.88);
+            color: #f0f2f5;
+            font-size: 11px;
+            font-weight: 500;
+            line-height: 1.5;
+            padding: 5px 9px;
+            border-radius: 6px;
+            white-space: nowrap;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+            transition: opacity 0.1s;
+            max-width: 200px;
+            white-space: normal;
+            word-break: break-all;
+        }
+        .sankey-node-tooltip .tooltip-type {
+            font-size: 9px;
+            color: #a0a8b8;
+            margin-top: 2px;
         }
 
         /* --- 中间视图区 (Center Viewport) --- */
