@@ -399,6 +399,35 @@ def process_palette_pipeline():
         return jsonify({"error": str(e)}), 500
 
 
+SESSION_FILE_PATH = os.path.join("static", "json", "app_session.json")
+
+
+@app.route("/session/load", methods=["GET"])
+def load_session():
+    try:
+        if not os.path.exists(SESSION_FILE_PATH):
+            return jsonify({"status": "not_found"})
+        with open(SESSION_FILE_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return jsonify({"status": "success", "session": data})
+    except Exception as e:
+        logger.error(f"Session load error: {e}")
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route("/session/save", methods=["POST"])
+def save_session():
+    try:
+        data = request.get_json() or {}
+        os.makedirs(os.path.dirname(SESSION_FILE_PATH), exist_ok=True)
+        with open(SESSION_FILE_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        return jsonify({"status": "success"})
+    except Exception as e:
+        logger.error(f"Session save error: {e}")
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5008)
 

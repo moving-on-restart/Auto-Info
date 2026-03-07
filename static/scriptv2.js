@@ -1,6 +1,7 @@
 ﻿let currentFilePath = "";
 let currentAnalysisAnswer = "";
 let currentChartData = null;
+let currentSchemaMeta = null;
 
 // Frontend-only graph mode switch:
 // - showForceLayoutOption = false: hide FORCE option and use SOM only.
@@ -621,6 +622,7 @@ async function pollForceGraphProgressOnce() {
             toggleLoading("loading-info", false);
             document.getElementById("btnGenInfo").disabled = false;
             forceGraphJobId = null;
+            if (ok) saveSession();
             return;
         }
 
@@ -749,6 +751,7 @@ function softenHexColor(hex, whiteMix = 0.56) {
 }
 
 function renderSchema(meta) {
+    currentSchemaMeta = meta || null;
     const container = document.getElementById("tab-schema");
     if (!meta || !Array.isArray(meta.columns)) {
         container.innerHTML = '<div class="center-msg">No Data</div>';
@@ -1796,6 +1799,7 @@ async function generatePaletteFromSelectedColorNode(options = {}) {
         renderPaletteOptions(extractedPaletteResults);
         renderDesignSummary();
         switchTab(2);
+        saveSession();
     } catch (e) {
         alert("Palette from node error: " + e);
     } finally {
@@ -1833,6 +1837,7 @@ async function uploadCsv() {
             document.getElementById("tableDesc").value = data.description;
         }
 
+        saveSession();
         alert("Data Loaded");
     } catch (e) {
         alert("Upload Error: " + e);
@@ -1886,6 +1891,7 @@ async function runAnalysis() {
             updateGraphActionLabels();
             switchTab(1);
         }
+        saveSession();
     } catch (e) {
         alert("Analysis Error: " + e);
     } finally {
@@ -1994,6 +2000,7 @@ async function buildForceGraphFromUploadedJson() {
                 ? `${getGraphModeLabel(mode)} built from uploaded JSON (${runCount} runs).`
                 : `${getGraphModeLabel(mode)} built from uploaded JSON.`;
             setForceProgress(100, doneMsg, true);
+            saveSession();
         } else {
             setForceProgress(100, "Uploaded JSON parsed, but no graph nodes.", true);
         }
@@ -3757,6 +3764,7 @@ function addToGallery(imgUrl, usedSelections) {
     galleryViewMode = "single";
     activeGalleryIndex = 0;
     renderGalleryUI();
+    saveSession();
 }
 
 window.switchGalleryTab = function(index) {
@@ -3829,6 +3837,152 @@ window.revertGalleryPending = function(index) {
     item.regenerateError = "";
     renderGalleryUI();
 };
+
+// ── Session persistence ──────────────────────────────────────────────────────
+
+async function saveSession() {
+    try {
+        const session = {
+            saved_at: new Date().toISOString(),
+            filepath: currentFilePath,
+            schema_meta: currentSchemaMeta ? deepClone(currentSchemaMeta) : null,
+            table_description: document.getElementById("tableDesc")?.value || "",
+            query: document.getElementById("queryInput")?.value || "",
+            analysis_answer: currentAnalysisAnswer,
+            chart_data: currentChartData ? deepClone(currentChartData) : null,
+            graph_bundle: graphBundle ? deepClone(graphBundle) : null,
+            som_step: somStep,
+            som_selections: deepClone(somSelections),
+            selected_nodes: deepClone(selectedNodes),
+            selected_color_node_id: selectedColorNodeId,
+            selected_palette_meta: selectedPaletteMeta ? deepClone(selectedPaletteMeta) : null,
+            extracted_palette_results: deepClone(extractedPaletteResults),
+            current_ref_image_path: currentRefImagePath,
+            gallery_data: deepClone(galleryData),
+        };
+        await fetch("/session/save", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(session),
+        });
+    } catch (e) {
+        console.warn("Session save failed:", e);
+    }
+}
+
+async function restoreSession() {
+    try {
+        const res = await fetch("/session/load");
+        const data = await res.json();
+        if (data.status !== "success" || !data.session) return;
+
+        const s = data.session;
+
+        // Restore file path
+        if (s.filepath) {
+            currentFilePath = s.filepath;
+            document.getElementById("btnAnalyze").disabled = false;
+        }
+
+        // Restore form inputs
+        if (s.table_description) {
+            const descEl = document.getElementById("tableDesc");
+            if (descEl) descEl.value = s.table_description;
+        }
+        if (s.query) {
+            const queryEl = document.getElementById("queryInput");
+            if (queryEl) queryEl.value = s.query;
+        }
+
+        // Restore schema table
+        if (s.schema_meta) {
+            renderSchema(s.schema_meta);
+            switchTab(0);
+        }
+
+        // Restore analysis answer
+        if (s.analysis_answer) {
+            currentAnalysisAnswer = s.analysis_answer;
+            const insightEl = document.getElementById("tab-insight");
+            if (insightEl) {
+                insightEl.innerHTML = `<div style="font-size:12px; line-height:1.5">${s.analysis_answer.replace(/\n/g, "<br>")}</div>`;
+            }
+        }
+
+        // Restore chart
+        if (s.chart_data) {
+            currentChartData = s.chart_data;
+            const spec = JSON.parse(JSON.stringify(s.chart_data));
+            spec.width = "container";
+            spec.height = "container";
+            spec.autosize = { type: "fit", contains: "padding", resize: true };
+            const visEl = document.getElementById("vis");
+            if (visEl) visEl.innerHTML = "";
+            vegaEmbed("#vis", spec, { actions: false, renderer: "canvas" }).catch(console.warn);
+            const btnGenInfo = document.getElementById("btnGenInfo");
+            if (btnGenInfo) btnGenInfo.style.display = "block";
+            updateGraphActionLabels();
+            switchTab(1);
+        }
+
+        // Restore graph bundle (SOM or force)
+        if (s.graph_bundle && s.graph_bundle.graph_data) {
+            const mode = normalizeGraphMode(s.graph_bundle.layout_mode || "som");
+            applyGraphBundleByMode(s.graph_bundle, mode);
+
+            // After applyGraphBundleByMode resets SOM state, restore saved step and selections
+            if (mode === "som") {
+                if (typeof s.som_step === "number" && s.som_step > 0) {
+                    somStep = Math.min(s.som_step, somPhases.length - 1);
+                }
+                if (s.som_selections && typeof s.som_selections === "object") {
+                    somSelections = s.som_selections;
+                    syncSelectedNodesFromSomSelections();
+                }
+                renderSomStep();
+            }
+
+            if (s.selected_nodes && s.selected_nodes.length) {
+                selectedNodes = s.selected_nodes;
+            }
+        }
+
+        // Restore palette state
+        if (s.selected_color_node_id) {
+            selectedColorNodeId = s.selected_color_node_id;
+            const hint = document.getElementById("paletteNodeHint");
+            const colorNode = getNodeById(selectedColorNodeId);
+            if (hint && colorNode) hint.textContent = colorNode.name || selectedColorNodeId;
+            const generateBtn = document.getElementById("btnGeneratePaletteFromNode");
+            if (generateBtn) generateBtn.disabled = false;
+        }
+        if (s.selected_palette_meta) {
+            selectedPaletteMeta = s.selected_palette_meta;
+        }
+        if (Array.isArray(s.extracted_palette_results) && s.extracted_palette_results.length) {
+            extractedPaletteResults = s.extracted_palette_results;
+            renderPaletteOptions(extractedPaletteResults);
+        }
+        if (s.current_ref_image_path) {
+            currentRefImagePath = s.current_ref_image_path;
+            renderRefImage(currentRefImagePath).catch(console.warn);
+        }
+
+        // Restore gallery
+        if (Array.isArray(s.gallery_data) && s.gallery_data.length) {
+            galleryData = s.gallery_data;
+            activeGalleryIndex = 0;
+            renderGalleryUI();
+        }
+
+        renderDesignSummary();
+        console.log(`[Session] Restored from ${s.saved_at}`);
+    } catch (e) {
+        console.warn("[Session] Restore failed:", e);
+    }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 
 function bindEvents() {
     const btnLayoutForce = document.getElementById("btnLayoutForce");
@@ -3909,3 +4063,4 @@ function bindEvents() {
 bindEvents();
 setGraphLayoutMode(getAllowedGraphMode(GRAPH_LAYOUT_UI_SETTINGS.defaultLayoutMode), { preserveSelection: true, preservePalette: true });
 renderGalleryUI();
+restoreSession();
