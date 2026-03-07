@@ -108,12 +108,12 @@ const SANKEY_COLUMN_TITLES = [
     "输出(Output)",
 ];
 const SANKEY_COLUMN_COLORS = {
-    0: "#5E7AD9",
-    1: "#84A6F4",
-    2: "#4FD0C9",
-    3: "#E7A067",
-    4: "#A98AE6",
-    5: "#8DD2D7",
+    0: "#7EA6F0",   // Insight  — soft blue
+    1: "#F2B07B",   // Bottom   — soft peach/orange
+    2: "#E89AC0",   // Middle   — soft pink
+    3: "#8CCB90",   // Top      — soft green
+    4: "#C0A2E8",   // Palette  — soft lavender
+    5: "#7ECFCF",   // Output   — soft teal
 };
 
 function getColorScale() {
@@ -2091,7 +2091,7 @@ function getSankeyColumnColor(column, payload = null) {
         const paletteHex = paletteHexListFromPayload(payload);
         return paletteHex[0] || SANKEY_COLUMN_COLORS[4];
     }
-    return SANKEY_COLUMN_COLORS[column] || "#9CA3AF";
+    return SANKEY_COLUMN_COLORS[column] || "#B0B8C4";
 }
 
 function getSankeySafeId(parts) {
@@ -2789,11 +2789,17 @@ function traceFullPath(hoveredNodeId, sankeyData) {
     return { pathNodeIds, pathLinkIds };
 }
 
-function forceColumnPositions(sankeyLayout, width, margins, nodeWidth = 20) {
-    const colWidth = (width - margins.left - margins.right) / Math.max(1, SANKEY_COLUMN_COUNT - 1);
+function forceColumnPositions(sankeyLayout, width, margins, nodeWidth) {
+    if (!nodeWidth) nodeWidth = 20;
+    const colWidth =
+        (width - margins.left - margins.right) /
+        Math.max(1, SANKEY_COLUMN_COUNT - 1);
     sankeyLayout.nodes.forEach((node) => {
-        const col = Math.max(0, Math.min(SANKEY_COLUMN_COUNT - 1, Number(node.column || 0)));
-        node.x0 = margins.left + (col * colWidth);
+        const col = Math.max(
+            0,
+            Math.min(SANKEY_COLUMN_COUNT - 1, Number(node.column || 0))
+        );
+        node.x0 = margins.left + col * colWidth;
         node.x1 = node.x0 + nodeWidth;
     });
 }
@@ -2822,21 +2828,37 @@ function sankeyLinkVerticalPath(link) {
     const yMid = y0 + ((y1 - y0) * 0.5);
     return `M${x0},${y0}C${x0},${yMid} ${x1},${yMid} ${x1},${y1}`;
 }
-
-function fitSankeySceneToViewport(sceneSel, chartWidth, chartHeight, padding = 8) {
+function verticalSankeyLinkPath(link) {
+    const sx = Number(link._vx0 || 0);
+    const sy = Number(link._vy0 || 0);
+    const tx = Number(link._vx1 || 0);
+    const ty = Number(link._vy1 || 0);
+    const midY = sy + (ty - sy) * 0.5;
+    return `M${sx},${sy} C${sx},${midY} ${tx},${midY} ${tx},${ty}`;
+}
+function fitSankeySceneToViewport(sceneSel, chartWidth, chartHeight, padding) {
+    if (!padding && padding !== 0) padding = 12;
     const sceneNode = sceneSel?.node?.();
     if (!sceneNode || typeof sceneNode.getBBox !== "function") return;
 
     const bbox = sceneNode.getBBox();
-    if (!Number.isFinite(bbox.width) || !Number.isFinite(bbox.height) || bbox.width <= 0 || bbox.height <= 0) return;
+    if (
+        !Number.isFinite(bbox.width) ||
+        !Number.isFinite(bbox.height) ||
+        bbox.width <= 0 ||
+        bbox.height <= 0
+    )
+        return;
 
-    const innerW = Math.max(1, chartWidth - (padding * 2));
-    const innerH = Math.max(1, chartHeight - (padding * 2));
+    const innerW = Math.max(1, chartWidth - padding * 2);
+    const innerH = Math.max(1, chartHeight - padding * 2);
     const scale = Math.min(innerW / bbox.width, innerH / bbox.height);
     if (!Number.isFinite(scale) || scale <= 0) return;
 
-    const tx = padding + ((innerW - (bbox.width * scale)) / 2) - (bbox.x * scale);
-    const ty = padding + ((innerH - (bbox.height * scale)) / 2) - (bbox.y * scale);
+    const tx =
+        padding + (innerW - bbox.width * scale) / 2 - bbox.x * scale;
+    const ty =
+        padding + (innerH - bbox.height * scale) / 2 - bbox.y * scale;
     sceneSel.attr("transform", `translate(${tx},${ty}) scale(${scale})`);
 }
 
@@ -3217,13 +3239,19 @@ function showAlternativesPanel(clickedNode, event, context) {
     mountSankeyFloatingPanel(containerElement, panel, event);
 }
 
-function renderSankeyDiagram(containerElement, galleryItem, analysisContext, options = {}) {
+function renderSankeyDiagram(
+    containerElement,
+    galleryItem,
+    analysisContext,
+    options = {}
+) {
     if (!containerElement) return;
     closeSankeyFloatingPanel();
     containerElement.innerHTML = "";
 
     if (typeof d3 === "undefined" || typeof d3.sankey !== "function") {
-        containerElement.innerHTML = '<div class="center-msg">d3-sankey not loaded</div>';
+        containerElement.innerHTML =
+            '<div class="center-msg">d3-sankey not loaded</div>';
         return;
     }
 
@@ -3233,235 +3261,420 @@ function renderSankeyDiagram(containerElement, galleryItem, analysisContext, opt
         : buildSankeyData(galleryItem, analysisContext);
 
     if (!sankeySource.nodes.length || !sankeySource.links.length) {
-        containerElement.innerHTML = '<div class="center-msg">No Sankey data</div>';
+        containerElement.innerHTML =
+            '<div class="center-msg">No Sankey data</div>';
         return;
     }
 
-    const measuredWidth = Math.floor(containerElement.clientWidth || containerElement.getBoundingClientRect().width || 0);
-    const measuredHeight = Math.floor(containerElement.clientHeight || containerElement.getBoundingClientRect().height || 0);
+    // ── Measure container ──
+    const measuredWidth = Math.floor(
+        containerElement.clientWidth ||
+            containerElement.getBoundingClientRect().width ||
+            0
+    );
+    const measuredHeight = Math.floor(
+        containerElement.clientHeight ||
+            containerElement.getBoundingClientRect().height ||
+            0
+    );
+
     if (measuredWidth < 40 || measuredHeight < 40) {
-        containerElement.innerHTML = '<div class="center-msg">Sankey graph is preparing layout...</div>';
+        containerElement.innerHTML =
+            '<div class="center-msg">Sankey preparing layout…</div>';
         requestAnimationFrame(() => {
-            const nextWidth = Math.floor(containerElement.clientWidth || 0);
-            const nextHeight = Math.floor(containerElement.clientHeight || 0);
-            if (nextWidth >= 40 && nextHeight >= 40) {
-                renderSankeyDiagram(containerElement, galleryItem, analysisContext, options);
-            }
+            const nw = Math.floor(containerElement.clientWidth || 0);
+            const nh = Math.floor(containerElement.clientHeight || 0);
+            if (nw >= 40 && nh >= 40)
+                renderSankeyDiagram(
+                    containerElement,
+                    galleryItem,
+                    analysisContext,
+                    options
+                );
         });
         return;
     }
 
-    const viewportWidth = Math.max(320, measuredWidth);
-    const viewportHeight = Math.max(240, measuredHeight);
-    const nodesPerColumn = Array.from({ length: SANKEY_COLUMN_COUNT }, () => 0);
-    sankeySource.nodes.forEach((node) => {
-        const col = Math.max(0, Math.min(SANKEY_COLUMN_COUNT - 1, Number(node.column || 0)));
-        nodesPerColumn[col] += 1;
+    const viewW = Math.max(320, measuredWidth);
+    const viewH = Math.max(240, measuredHeight);
+
+    // ── Internal layout canvas (horizontal, will be rotated) ──
+    // We use a virtual canvas tall enough so columns have room.
+    const layoutW = viewW;
+    const layoutH = viewH;
+
+    const nodesPerCol = Array.from(
+        { length: SANKEY_COLUMN_COUNT },
+        () => 0
+    );
+    sankeySource.nodes.forEach((n) => {
+        const c = Math.max(
+            0,
+            Math.min(SANKEY_COLUMN_COUNT - 1, Number(n.column || 0))
+        );
+        nodesPerCol[c] += 1;
     });
-    const maxNodesInColumn = Math.max(1, ...nodesPerColumn);
+    const maxNodesInCol = Math.max(1, ...nodesPerCol);
 
-    const chartWidth = viewportWidth;
-    const chartHeight = viewportHeight;
-    const labelGutter = Math.max(56, Math.min(132, Math.floor(chartWidth * 0.18)));
-    const margins = { top: 14, right: labelGutter, bottom: 14, left: labelGutter };
-    const nodeWidth = Math.max(10, Math.min(18, Math.floor(chartWidth / 88)));
-    const innerHeight = Math.max(120, chartHeight - margins.top - margins.bottom);
-    const nodePadding = Math.max(8, Math.min(22, Math.floor(innerHeight / (maxNodesInColumn + 1))));
+    const nodeWidth = Math.max(
+        8,
+        Math.min(16, Math.floor(layoutW / 100))
+    );
+    const labelGutter = Math.max(
+        48,
+        Math.min(110, Math.floor(layoutW * 0.14))
+    );
+    const margins = {
+        top: 12,
+        right: labelGutter,
+        bottom: 12,
+        left: labelGutter,
+    };
+    const innerH =
+        Math.max(100, layoutH - margins.top - margins.bottom);
+    const nodePad = Math.max(
+        6,
+        Math.min(20, Math.floor(innerH / (maxNodesInCol + 1)))
+    );
 
-    const svg = d3.select(containerElement)
+    // ── SVG ──
+    const svg = d3
+        .select(containerElement)
         .append("svg")
-        .attr("class", "sankey-svg")
+        .attr("class", "sankey-svg sankey-vertical")
         .attr("width", "100%")
         .attr("height", "100%")
-        .attr("viewBox", `0 0 ${chartWidth} ${chartHeight}`)
+        .attr("viewBox", `0 0 ${viewW} ${viewH}`)
         .attr("preserveAspectRatio", "xMidYMid meet");
 
     const defs = svg.append("defs");
+
+    // Soft background
     svg.append("rect")
-        .attr("x", 0)
-        .attr("y", 0)
-        .attr("width", chartWidth)
-        .attr("height", chartHeight)
-        .attr("fill", "#ECECEC");
+        .attr("width", viewW)
+        .attr("height", viewH)
+        .attr("fill", "#FAFBFD")
+        .attr("rx", 6);
+
     const root = svg.append("g").attr("class", "sankey-scene");
 
-    const titleLayer = root.append("g").attr("class", "sankey-column-titles");
-    const colWidth = (chartWidth - margins.left - margins.right) / Math.max(1, SANKEY_COLUMN_COUNT - 1);
-    SANKEY_COLUMN_TITLES.forEach((title, idx) => {
-        titleLayer.append("text")
-            .attr("x", margins.left + (idx * colWidth))
-            .attr("y", 11)
-            .attr("text-anchor", "middle")
-            .text(shortSankeyLabel(title, 18));
-    });
-
-    const sankeyGenerator = d3.sankey()
+    // ── d3-sankey layout (horizontal) ──
+    const sankeyGenerator = d3
+        .sankey()
         .nodeId((d) => d.id)
         .nodeWidth(nodeWidth)
-        .nodePadding(nodePadding)
-        .nodeAlign((node) => Math.max(0, Math.min(SANKEY_COLUMN_COUNT - 1, Number(node.column || 0))))
+        .nodePadding(nodePad)
+        .nodeAlign((node) =>
+            Math.max(
+                0,
+                Math.min(
+                    SANKEY_COLUMN_COUNT - 1,
+                    Number(node.column || 0)
+                )
+            )
+        )
         .nodeSort((a, b) => {
             if (a.column !== b.column) return a.column - b.column;
             return Number(b.value || 0) - Number(a.value || 0);
         })
         .extent([
-            [margins.left, margins.top + 8],
-            [chartWidth - margins.right, chartHeight - margins.bottom],
+            [margins.left, margins.top],
+            [layoutW - margins.right, layoutH - margins.bottom],
         ]);
 
     const sankeyInput = {
-        nodes: sankeySource.nodes.map((node) => ({ ...deepClone(node) })),
-        links: sankeySource.links.map((link) => ({ ...deepClone(link) })),
+        nodes: sankeySource.nodes.map((n) => ({ ...deepClone(n) })),
+        links: sankeySource.links.map((l) => ({ ...deepClone(l) })),
     };
 
     const sankeyLayout = sankeyGenerator(sankeyInput);
-    forceColumnPositions(sankeyLayout, chartWidth, margins, nodeWidth);
+
+    // Force evenly-spaced columns (horizontal positions)
+    forceColumnPositions(sankeyLayout, layoutW, margins, nodeWidth);
     if (typeof sankeyGenerator.update === "function") {
         sankeyGenerator.update(sankeyLayout);
     }
 
-    const rawLinkWidths = sankeyLayout.links
-        .map((link) => Number(link.width || link.value || 1))
-        .filter((widthValue) => Number.isFinite(widthValue) && widthValue > 0);
-    const rawLinkMin = rawLinkWidths.length ? Math.min(...rawLinkWidths) : 1;
-    const rawLinkMax = rawLinkWidths.length ? Math.max(...rawLinkWidths) : 1;
-    const viewportScale = Math.max(0.84, Math.min(1.36, Math.min(viewportWidth, viewportHeight) / 460));
-    const minFlowStroke = 1.4 * viewportScale;
-    const maxFlowStroke = 10.8 * viewportScale;
-    const getAdaptiveFlowWidth = (link) => {
-        const raw = Number(link.width || link.value || 1);
-        const strength = Math.max(0, Math.min(1, Number(link.strength || 0.5)));
-        if (!Number.isFinite(raw)) return minFlowStroke;
+    // ─────────────────────────────────────────────────────────
+    //  TRANSFORM: Horizontal → Bottom-to-Top (Vertical)
+    //
+    //  Original (horizontal d3-sankey):
+    //    x0,x1 → column position (left–right)
+    //    y0,y1 → node spread within column (top–bottom)
+    //
+    //  After transform:
+    //    vx0,vx1 → horizontal spread (was y0,y1)
+    //    vy0,vy1 → vertical position, flipped (column 0 at BOTTOM)
+    // ─────────────────────────────────────────────────────────
+    const transformH = layoutH; // reference height for flipping
 
-        if (rawLinkMax <= rawLinkMin) {
-            const fallback = (raw * viewportScale) * (0.9 + (strength * 0.3));
-            return Math.max(minFlowStroke, Math.min(maxFlowStroke * 1.25, fallback));
-        }
-
-        const ratio = Math.pow((raw - rawLinkMin) / (rawLinkMax - rawLinkMin), 0.78);
-        const widthByValue = minFlowStroke + ((maxFlowStroke - minFlowStroke) * ratio);
-        const weightedWidth = widthByValue * (0.9 + (strength * 0.35));
-        return Math.max(minFlowStroke, Math.min(maxFlowStroke * 1.25, weightedWidth));
-    };
-
-    sankeyLayout.links.forEach((link, idx) => {
-        const sourceColor = link.source?.color || getSankeyColumnColor(Number(link.source?.column || 0), link.source?.payload);
-        const targetColor = link.target?.color || getSankeyColumnColor(Number(link.target?.column || 0), link.target?.payload);
-        const sourceSoft = softenHexColor(sourceColor, 0.56);
-        const targetSoft = softenHexColor(targetColor, 0.56);
-        const gradientId = `sankey-grad-${galleryItem?.id || "agg"}-${idx}`;
-        link._gradientId = gradientId;
-        link._linkKey = getSankeyLinkKey(link.source.id, link.target.id);
-
-        const gradient = defs.append("linearGradient")
-            .attr("id", gradientId)
-            .attr("gradientUnits", "userSpaceOnUse")
-            .attr("x1", Number(link.source?.x1 || link.x0 || 0))
-            .attr("x2", Number(link.target?.x0 || link.x1 || 0))
-            .attr("y1", Number(link.y0 || 0))
-            .attr("y2", Number(link.y1 || 0));
-
-        gradient.append("stop")
-            .attr("offset", "0%")
-            .attr("stop-color", sourceSoft)
-            .attr("stop-opacity", 0.7);
-        gradient.append("stop")
-            .attr("offset", "100%")
-            .attr("stop-color", targetSoft)
-            .attr("stop-opacity", 0.7);
+    sankeyLayout.nodes.forEach((node) => {
+        node.vx0 = node.y0;
+        node.vx1 = node.y1;
+        node.vy0 = transformH - node.x1; // top edge (in screen coords)
+        node.vy1 = transformH - node.x0; // bottom edge
     });
 
-    const linkSel = root.append("g")
+    // For links: compute vertical exit/entry points
+    sankeyLayout.links.forEach((link) => {
+        // link.y0 = y-pos where link exits source (horiz layout)
+        // link.y1 = y-pos where link enters target
+        // After transform, these become x positions
+        link._vx0 = link.y0; // exit x
+        link._vy0 = transformH - link.source.x1; // exit y (bottom of source in horiz = top after flip)
+        link._vx1 = link.y1; // entry x
+        link._vy1 = transformH - link.target.x0; // entry y (top of target in horiz = bottom after flip)
+    });
+
+    // ── Adaptive flow widths ──
+    const rawWidths = sankeyLayout.links
+        .map((l) => Number(l.width || l.value || 1))
+        .filter((w) => Number.isFinite(w) && w > 0);
+    const wMin = rawWidths.length ? Math.min(...rawWidths) : 1;
+    const wMax = rawWidths.length ? Math.max(...rawWidths) : 1;
+    const vScale = Math.max(
+        0.82,
+        Math.min(1.4, Math.min(viewW, viewH) / 460)
+    );
+    const flowMin = 1.2 * vScale;
+    const flowMax = 10 * vScale;
+
+    function adaptiveFlowWidth(link) {
+        const raw = Number(link.width || link.value || 1);
+        const s = Math.max(
+            0,
+            Math.min(1, Number(link.strength || 0.5))
+        );
+        if (!Number.isFinite(raw)) return flowMin;
+        if (wMax <= wMin) {
+            return Math.max(
+                flowMin,
+                Math.min(flowMax, raw * vScale * (0.9 + s * 0.3))
+            );
+        }
+        const ratio = Math.pow((raw - wMin) / (wMax - wMin), 0.78);
+        const wByVal = flowMin + (flowMax - flowMin) * ratio;
+        return Math.max(
+            flowMin,
+            Math.min(flowMax * 1.25, wByVal * (0.9 + s * 0.35))
+        );
+    }
+
+    // ── Gradients (vertical) ──
+    sankeyLayout.links.forEach((link, idx) => {
+        const srcCol = Number(link.source?.column || 0);
+        const tgtCol = Number(link.target?.column || 0);
+        const srcColor =
+            link.source?.color || getSankeyColumnColor(srcCol, link.source?.payload);
+        const tgtColor =
+            link.target?.color || getSankeyColumnColor(tgtCol, link.target?.payload);
+        const srcSoft = softenHexColor(srcColor, 0.52);
+        const tgtSoft = softenHexColor(tgtColor, 0.52);
+
+        const gid = `sankey-vgrad-${galleryItem?.id || "agg"}-${idx}`;
+        link._gradientId = gid;
+        link._linkKey = getSankeyLinkKey(link.source.id, link.target.id);
+
+        // Vertical gradient (top → bottom corresponds to source → target)
+        const grad = defs
+            .append("linearGradient")
+            .attr("id", gid)
+            .attr("gradientUnits", "userSpaceOnUse")
+            .attr("x1", link._vx0)
+            .attr("y1", link._vy0)
+            .attr("x2", link._vx1)
+            .attr("y2", link._vy1);
+
+        grad.append("stop")
+            .attr("offset", "0%")
+            .attr("stop-color", srcSoft)
+            .attr("stop-opacity", 0.62);
+        grad.append("stop")
+            .attr("offset", "100%")
+            .attr("stop-color", tgtSoft)
+            .attr("stop-opacity", 0.62);
+    });
+
+    // ── Column level titles (left side, bottom→top) ──
+    const colCenterY = {};
+    for (let col = 0; col < SANKEY_COLUMN_COUNT; col++) {
+        const colNodes = sankeyLayout.nodes.filter(
+            (n) => Number(n.column || 0) === col
+        );
+        if (!colNodes.length) continue;
+        const minVy = Math.min(...colNodes.map((n) => n.vy0));
+        const maxVy = Math.max(...colNodes.map((n) => n.vy1));
+        colCenterY[col] = (minVy + maxVy) / 2;
+    }
+
+    const titleLayer = root
+        .append("g")
+        .attr("class", "sankey-column-titles-v");
+
+    Object.entries(colCenterY).forEach(([colStr, cy]) => {
+        const col = Number(colStr);
+        const title = SANKEY_COLUMN_TITLES[col] || `Col ${col}`;
+        const labelColor = SANKEY_COLUMN_COLORS[col] || "#8a8f99";
+        titleLayer
+            .append("text")
+            .attr("x", margins.left - 10)
+            .attr("y", cy)
+            .attr("text-anchor", "end")
+            .attr("dominant-baseline", "middle")
+            .attr("fill", labelColor)
+            .attr("font-size", "9px")
+            .attr("font-weight", "700")
+            .attr("letter-spacing", "0.3px")
+            .attr("opacity", 0.85)
+            .text(shortSankeyLabel(title, 16));
+    });
+
+    // ── Draw links (vertical bezier) ──
+    const linkSel = root
+        .append("g")
         .attr("fill", "none")
         .selectAll("path")
         .data(sankeyLayout.links)
         .join("path")
         .attr("class", "sankey-link")
-        .attr("d", d3.sankeyLinkHorizontal())
+        .attr("d", verticalSankeyLinkPath)
         .attr("stroke", (d) => `url(#${d._gradientId})`)
-        .attr("stroke-opacity", 0.56)
-        .attr("stroke-width", (d) => getAdaptiveFlowWidth(d));
+        .attr("stroke-opacity", 0.5)
+        .attr("stroke-width", (d) => adaptiveFlowWidth(d))
+        .attr("stroke-linecap", "round");
 
-    const nodeSel = root.append("g")
+    // ── Draw nodes ──
+    const nodeSel = root
+        .append("g")
         .selectAll("g")
         .data(sankeyLayout.nodes, (d) => d.id)
         .join("g")
-        .attr("class", (d) => `sankey-node ${d.isEditable && !isAggregate ? "is-editable" : "is-readonly"}`)
+        .attr(
+            "class",
+            (d) =>
+                `sankey-node ${
+                    d.isEditable && !isAggregate
+                        ? "is-editable"
+                        : "is-readonly"
+                }`
+        )
         .attr("data-node-id", (d) => d.id)
-        .on("mouseenter", (_, hoveredNode) => {
-            const traced = traceFullPath(hoveredNode.id, sankeyLayout);
-            nodeSel.classed("is-path", (node) => traced.pathNodeIds.has(node.id));
-            nodeSel.classed("is-dim", (node) => !traced.pathNodeIds.has(node.id));
-            linkSel.classed("is-path", (link) => traced.pathLinkIds.has(link._linkKey));
-            linkSel.classed("is-dim", (link) => !traced.pathLinkIds.has(link._linkKey));
+        .on("mouseenter", (_, hovered) => {
+            const traced = traceFullPath(hovered.id, sankeyLayout);
+            nodeSel.classed(
+                "is-path",
+                (n) => traced.pathNodeIds.has(n.id)
+            );
+            nodeSel.classed(
+                "is-dim",
+                (n) => !traced.pathNodeIds.has(n.id)
+            );
+            linkSel.classed(
+                "is-path",
+                (l) => traced.pathLinkIds.has(l._linkKey)
+            );
+            linkSel.classed(
+                "is-dim",
+                (l) => !traced.pathLinkIds.has(l._linkKey)
+            );
         })
         .on("mouseleave", () => {
-            nodeSel.classed("is-path", false).classed("is-dim", false);
-            linkSel.classed("is-path", false).classed("is-dim", false);
+            nodeSel
+                .classed("is-path", false)
+                .classed("is-dim", false);
+            linkSel
+                .classed("is-path", false)
+                .classed("is-dim", false);
         })
         .on("click", (event, node) => {
             event.stopPropagation();
             if (isAggregate || !node.isEditable) return;
-            const context = {
+            const ctx = {
                 galleryItem,
                 analysisContext,
                 sankeyData: sankeyLayout,
                 containerElement,
             };
             if (node.nodeType === "palette") {
-                editPaletteNode(node, event, context);
+                editPaletteNode(node, event, ctx);
             } else {
-                showAlternativesPanel(node, event, context);
+                showAlternativesPanel(node, event, ctx);
             }
         });
 
-    nodeSel.append("rect")
+    // Node rectangles (using transformed coords)
+    nodeSel
+        .append("rect")
         .attr("class", "sankey-node-shape")
-        .attr("x", (d) => d.x0)
-        .attr("y", (d) => d.y0)
-        .attr("width", (d) => Math.max(8, d.x1 - d.x0))
-        .attr("height", (d) => Math.max(4, d.y1 - d.y0))
-        .attr("rx", 1)
-        .attr("ry", 1)
-        .attr("fill", (d) => d.color || getSankeyColumnColor(Number(d.column || 0), d.payload))
-        .attr("fill-opacity", 0.96)
-        .attr("stroke", "rgba(255, 255, 255, 0.55)")
-        .classed("sankey-output-pending", (d) => Boolean(!isAggregate && d.nodeType === "output" && galleryItem?.isPendingRegenerate));
+        .attr("x", (d) => d.vx0)
+        .attr("y", (d) => d.vy0)
+        .attr("width", (d) => Math.max(6, d.vx1 - d.vx0))
+        .attr("height", (d) => Math.max(3, d.vy1 - d.vy0))
+        .attr("rx", 2)
+        .attr("ry", 2)
+        .attr(
+            "fill",
+            (d) =>
+                d.color ||
+                getSankeyColumnColor(
+                    Number(d.column || 0),
+                    d.payload
+                )
+        )
+        .attr("fill-opacity", 0.92)
+        .attr("stroke", "rgba(255,255,255,0.7)")
+        .attr("stroke-width", 0.8)
+        .classed(
+            "sankey-output-pending",
+            (d) =>
+                Boolean(
+                    !isAggregate &&
+                        d.nodeType === "output" &&
+                        galleryItem?.isPendingRegenerate
+                )
+        );
 
-    nodeSel.filter((d) => d.isEditable && !isAggregate)
+    // Pencil icon for editable nodes
+    nodeSel
+        .filter((d) => d.isEditable && !isAggregate)
         .append("path")
         .attr("class", "sankey-pencil")
         .attr("d", (d) => {
-            const cx = (d.x0 + d.x1) / 2;
-            const cy = (d.y0 + d.y1) / 2;
-            return `M${cx - 3},${cy - 6} l4,-2 l2,2 l-4,2 z`;
+            const cx = (d.vx0 + d.vx1) / 2;
+            const cy = (d.vy0 + d.vy1) / 2;
+            return `M${cx - 3},${cy - 5} l4,-2 l2,2 l-4,2 z`;
         });
 
+    // ── Labels (right side of each node) ──
     root.append("g")
         .attr("class", "sankey-label-layer")
         .selectAll("text")
         .data(sankeyLayout.nodes)
         .join("text")
         .attr("class", "sankey-label")
-        .attr("x", (d) => {
-            const col = Number(d.column || 0);
-            if (col === 0) return d.x0 - 7;
-            return d.x1 + 7;
-        })
-        .attr("y", (d) => ((d.y0 + d.y1) / 2))
+        .attr("x", (d) => d.vx1 + 6)
+        .attr("y", (d) => (d.vy0 + d.vy1) / 2)
         .attr("dy", "0.32em")
-        .attr("text-anchor", (d) => (Number(d.column || 0) === 0 ? "end" : "start"))
+        .attr("text-anchor", "start")
         .text((d) => {
             const col = Number(d.column || 0);
-            return shortSankeyLabel(d.name, col === SANKEY_COLUMN_COUNT - 1 ? 16 : 14);
+            return shortSankeyLabel(
+                d.name,
+                col === SANKEY_COLUMN_COUNT - 1 ? 16 : 12
+            );
         });
 
+    // ── Auto-fit scene into viewport ──
+    fitSankeySceneToViewport(root, viewW, viewH, 16);
+
+    // ── Click to close floating panels ──
     if (!isAggregate) {
         d3.select(containerElement).on("click", () => {
             closeSankeyFloatingPanel();
         });
     }
 }
+
 
 function renderGalleryUI() {
     const tabsContainer = document.getElementById("galleryTabs");

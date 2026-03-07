@@ -1,4 +1,4 @@
-        :root {
+:root {
             --bg-body: #f4f4f4;
             --bg-panel: #ffffff;
             --border-color: #d1d5db;
@@ -14,27 +14,25 @@
             --info-panel-width: clamp(200px, 20%, 300px);
         }
 
-        /* --- 鍏ㄥ眬閲嶇疆 --- */
+        /* --- 全局重置 --- */
         * { box-sizing: border-box; outline: none; }
         body { margin: 0; font-family: 'Roboto', sans-serif; background-color: var(--bg-body); color: var(--text-main); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
-        /* --- 澶撮儴 --- */
+        /* --- 头部 --- */
         .header { height: var(--header-height); background: #fff; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; padding: 0 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; justify-content: space-between;}
         .header-left span { color: var(--primary); margin-right: 10px; }
 
-        /* --- 涓诲竷灞€ --- */
+        /* --- 主布局 --- */
         .workspace { display: grid; grid-template-columns: 320px 1fr 300px; height: calc(100vh - var(--header-height)); }
 
-        /* --- 闈㈡澘 (Panels) --- */
+        /* --- 面板 (Panels) --- */
         .panel {
             background: var(--bg-panel);
             border-right: 1px solid var(--border-color);
             display: flex;
             flex-direction: column;
-
-            /* --- 鏂板/淇敼浠ヤ笅涓よ --- */
-            min-height: 0;    /* 鍏抽敭锛氬厑璁?grid item 灏忎簬鍏跺唴瀹归珮搴?*/
-            overflow: hidden; /* 鍏抽敭锛氶槻姝㈠唴閮ㄥ厓绱犳孩鍑?*/
+            min-height: 0;
+            overflow: hidden;
         }
         .panel-content-steps {
             padding: 20px;
@@ -68,16 +66,13 @@
 
         .panel-header { padding: 15px; background: #f9fafb; border-bottom: 1px solid var(--border-color); font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; display: flex; justify-content: space-between; align-items: center;}
         .panel-content {
-            /* padding: 20px;  <-- 鍒犻櫎杩欎竴琛岋紝padding 绉诲埌鍏蜂綋鍐呭閲?*/
-            /* overflow-y: auto; <-- 鍒犻櫎杩欎竴琛岋紝涓嶈鍦ㄨ繖閲屾粴鍔?*/
-
             flex: 1;
-            overflow: hidden; /* 闅愯棌婧㈠嚭锛屽己鍒跺瓙鍏冪礌澶勭悊婊氬姩 */
-            display: flex;    /* 浣跨敤 flex 甯冨眬璁╁瓙鍏冪礌鎾戞弧 */
+            overflow: hidden;
+            display: flex;
             flex-direction: column;
             position: relative;
         }
-        /* --- 姝ラ涓庤緭鍏?(Steps & Inputs) --- */
+        /* --- 步骤与输入 (Steps & Inputs) --- */
         .step-container { margin-bottom: 25px; position: relative; }
         .step-container::before { content: ''; position: absolute; left: 7px; top: 25px; bottom: -30px; width: 1px; background: #e5e7eb; z-index: 0; }
         .step-container:last-child::before { display: none; }
@@ -106,7 +101,7 @@
         textarea, input[type="text"], input[type="file"], select { width: 100%; padding: 8px; border: 1px solid var(--border-color); font-family: 'JetBrains Mono', monospace; font-size: 11px; margin-bottom: 8px; background: #fbfbfb; transition: border 0.2s; border-radius: 4px;}
         textarea:focus, input:focus, select:focus { border-color: var(--primary); background: #fff; }
 
-        /* --- 鎸夐挳 (Buttons) --- */
+        /* --- 按钮 (Buttons) --- */
         button { width: 100%; padding: 8px; background: #fff; border: 1px solid var(--text-main); color: var(--text-main); font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s; text-transform: uppercase; border-radius: 4px; margin-bottom: 5px;}
         button:hover { background: var(--text-main); color: #fff; }
         button:disabled { opacity: 0.5; cursor: not-allowed; background: #eee; }
@@ -161,22 +156,18 @@
             .random-generate-btn { flex: 1 0 100%; width: 100%; }
         }
 
-        /* --- 閫夐」鍗＄郴缁?(Tab System - 鍙充晶闈㈡澘) --- */
+        /* --- 选项卡系统 (Tab System - 右侧面板) --- */
         .tab-header { display: flex; border-bottom: 1px solid var(--border-color); background: #f9fafb; }
         .tab-btn { flex: 1; padding: 10px; font-size: 10px; text-align: center; cursor: pointer; font-weight: 600; color: var(--text-muted); border-bottom: 2px solid transparent; }
         .tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); background: #fff; }
 
         .tab-content {
             display: none;
-            /* padding: 15px; <-- 淇濇寔鎴栬皟鏁?*/
             padding: 15px;
-
-            /* height: 100%; <-- 鍒犻櫎鍥哄畾楂樺害 */
-            flex: 1;          /* 璁╁畠鑷姩濉弧鍓╀綑绌洪棿 */
-            overflow-y: auto; /* 鍦ㄨ繖閲屾粴鍔?*/
+            flex: 1;
+            overflow-y: auto;
         }
 
-        /* 纭繚 active 鐘舵€佷笅涔熸槸 flex item */
         .tab-content.active {
             display: block;
         }
@@ -202,9 +193,9 @@
         .design-sankey-panel {
             flex: 1 1 auto;
             min-height: 280px;
-            border: 1px solid #d5d8de;
-            border-radius: 6px;
-            background: #ececec;
+            border: 1px solid #dde1e8;
+            border-radius: 8px;
+            background: #FAFBFD;
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -218,9 +209,10 @@
             font-size: 10px;
             font-weight: 700;
             color: #525a66;
-            border-bottom: 1px solid #d9dce2;
-            background: #f3f4f6;
+            border-bottom: 1px solid #e8eaee;
+            background: #f6f7f9;
             padding: 8px 10px;
+            border-radius: 8px 8px 0 0;
         }
 
         #designSankeySchemeLabel {
@@ -235,12 +227,13 @@
             position: relative;
             overflow: hidden;
             padding: 8px;
-            background: #ececec;
+            background: #FAFBFD;
             display: flex;
             align-items: stretch;
+            border-radius: 0 0 8px 8px;
         }
 
-        /* --- 涓棿瑙嗗浘鍖?(Center Viewport) --- */
+        /* --- 中间视图区 (Center Viewport) --- */
         .viewport {
             background: #f0f2f5;
             display: flex;
@@ -249,11 +242,9 @@
             padding: 15px;
             gap: 15px;
             align-items: stretch;
-
-            /* --- 鏂板 --- */
             min-height: 0;
         }
-        /* 涓婂崐閮ㄥ垎锛氭暟鎹垎鏋?*/
+        /* 上半部分：数据分析 */
         .viz-split {
             order: 2;
             flex: 0 0 var(--info-panel-width);
@@ -270,21 +261,21 @@
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
             overflow: hidden;
             display: flex;
-            flex-direction: column; /* 鍏抽敭锛氳鏍囬鍜屽浘琛ㄥ瀭鐩存帓鍒?*/
+            flex-direction: column;
             position: relative;
-            min-height: 300px; /* 缁欎竴涓渶灏忛珮搴︼紝闃叉鍘嬪緱澶墎 */
+            min-height: 300px;
         }
         .viz-title { padding: 8px 12px; font-size: 10px; font-weight: 700; color: var(--text-muted); border-bottom: 1px solid #eee; background: #fafafa; }
         #vis {
-            flex: 1;              /* 鍗犳嵁鎵€鏈夊墿浣欓珮搴?*/
-            width: 100%;          /* 瀹藉害鎾戞弧 */
-            height: 100%;         /* 楂樺害鎾戞弧 */
-            overflow: hidden;     /* 闃叉婊氬姩鏉?*/
-            padding: 10px;        /* 鐣欎竴鐐瑰唴杈硅窛锛岄槻姝㈡枃瀛楄创杈?*/
-            display: flex;        /*浠ユ纭繚vega鐢熸垚鐨刢anvas鑳藉眳涓垨鎷変几*/
+            flex: 1;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            padding: 10px;
+            display: flex;
         }
 
-        /* 涓嬪崐閮ㄥ垎锛氬弬鑰冨浘鍍?*/
+        /* 下半部分：参考图像 */
         #vis.step-chart-area {
             height: 220px;
             flex: 0 0 auto;
@@ -312,7 +303,7 @@
         }
         .viz-box { min-height: var(--top-pane-min-height); }
 
-        /* 鐢诲竷涓庝氦浜?*/
+        /* 画布与交互 */
         .canvas-container { position: relative; display: inline-block; line-height: 0; max-width: 100%; max-height: 100%; margin: auto; }
         #mainImage { max-width: 100%; max-height: 35vh; display: block; object-fit: contain; }
         #interactionLayer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; }
@@ -321,7 +312,7 @@
         .mask-poly:hover { fill: rgba(239, 68, 68, 0.3); stroke: #fff; stroke-width: 3; }
         .mask-poly.active { fill: rgba(37, 99, 235, 0.3); stroke: var(--primary); stroke-width: 3; }
 
-        /* 鍙充晶闈㈡澘缁撴灉鏍峰紡 */
+        /* 右侧面板结果样式 */
         .data-row { margin-bottom: 15px; border-bottom: 1px dashed #eee; padding-bottom: 10px; }
         .data-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px; }
         .data-value { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500; }
@@ -333,19 +324,18 @@
         .loader::after { content: "..."; animation: dots 1.5s infinite; }
         @keyframes dots { 0% { content: "."; } 33% { content: ".."; } 66% { content: "..."; } }
 
-        /* 鍥剧墖鏍峰紡 */
+        /* 图片样式 */
         .infographic-img { max-width: 100%; max-height: 100%; object-fit: contain; padding: 10px;}
         .center-msg { display: flex; align-items: center; justify-content: center; height: 100%; color: #aaa; font-size: 12px; text-align: center; }
 
-        /* 杈撳叆妯″紡鍒囨崲 */
+        /* 输入模式切换 */
         .input-mode-toggle { display: flex; margin-bottom: 8px; border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden; }
         .mode-btn { flex: 1; padding: 6px; font-size: 10px; text-align: center; cursor: pointer; background: #f4f4f4; }
         .mode-btn.active { background: white; font-weight: bold; color: var(--primary); }
         .mode-panel { display: none; }
         .mode-panel.active { display: block; }
-        /* --- 淇濈暀鍘熸湁鐨?CSS --- */
 
-        /* --- 鏂板锛氬悜瀵兼牱寮?(鍙充晶闈㈡澘) --- */
+        /* --- 向导样式 (右侧面板) --- */
         .wizard-step-title {
             font-size: 11px;
             font-weight: 700;
@@ -380,14 +370,14 @@
 
         .wizard-card.selected {
             border-color: var(--primary);
-            background: #eff6ff; /* 娴呰摑鑹茶儗鏅?*/
+            background: #eff6ff;
             box-shadow: 0 0 0 1px var(--primary);
         }
 
         .wizard-card strong { display: block; margin-bottom: 2px; color: #333; }
         .wizard-card span { color: #666; font-size: 10px; line-height: 1.3; display: block; }
 
-        /* 瑁呴グ鍏冪礌鍥剧墖鍗＄墖 */
+        /* 装饰元素图片卡片 */
         .asset-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -413,7 +403,7 @@
         .asset-card img {
             width: 100%;
             height: 80px;
-            object-fit: contain; /* 淇濇寔鍥炬爣姣斾緥 */
+            object-fit: contain;
             padding: 5px;
             display: block;
         }
@@ -427,7 +417,7 @@
             color: #666;
         }
 
-        /* 搴曢儴瀵艰埅鎸夐挳 */
+        /* 底部导航按钮 */
         .wizard-nav {
             margin-top: 20px;
             display: flex;
@@ -435,20 +425,20 @@
             padding-bottom: 20px;
         }
 
-        /* --- 鏂板锛氱敾寤婃牱寮?(涓棿闈㈡澘) --- */
+        /* --- 画廊样式 (中间面板) --- */
         .gallery-item {
             background: white;
             border-radius: 8px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
             overflow: hidden;
             display: flex;
-            flex-direction: row; /* 姘村钩甯冨眬锛氬乏鍥惧彸瀛?*/
+            flex-direction: row;
             min-height: 220px;
             border: 1px solid #eee;
         }
 
         .gallery-img-container {
-            flex: 2; /* 鍥剧墖鍗?2/3 */
+            flex: 2;
             background: #fafafa;
             display: flex;
             justify-content: center;
@@ -465,7 +455,7 @@
         }
 
         .gallery-info {
-            flex: 1; /* 淇℃伅鍗?1/3 */
+            flex: 1;
             padding: 15px;
             font-size: 10px;
             overflow-y: auto;
@@ -477,7 +467,7 @@
         .info-label { color: #888; font-weight: 600; font-size: 9px; text-transform: uppercase; margin-bottom: 2px;}
         .info-val { color: #333; font-family: 'JetBrains Mono', monospace; font-size: 10px; }
 
-        /* 鍔犺浇鍔ㄧ敾鍗犱綅绗?*/
+        /* 加载动画占位符 */
         .asset-loader {
             height: 80px;
             display: flex;
@@ -488,9 +478,7 @@
             font-size: 9px;
         }
 
-
-
-        /* 1. 鍚戝绗?姝ワ細鍙欎簨鏂囨湰棰勮鏍峰紡 */
+        /* 1. 向导第N步：叙事文本预览样式 */
         .wizard-content-preview {
             margin-top: 6px;
             padding: 6px;
@@ -500,12 +488,12 @@
             font-size: 10px;
             color: #374151;
             font-family: 'JetBrains Mono', monospace;
-            white-space: pre-wrap; /* 淇濈暀鎹㈣绗?*/
-            max-height: 80px;      /* 闄愬埗鏈€澶ч珮搴?*/
-            overflow-y: auto;      /* 鍐呭杩囧鏃舵粴鍔?*/
+            white-space: pre-wrap;
+            max-height: 80px;
+            overflow-y: auto;
         }
 
-        /* 2. 鐢诲粖鏍囩椤典笌甯冨眬鏍峰紡 */
+        /* 2. 画廊标签页与布局样式 */
         .gallery-container {
             display: flex;
             flex-direction: column;
@@ -521,7 +509,7 @@
             white-space: nowrap;
             display: flex;
             gap: 5px;
-            min-height: 45px; /* 鍥哄畾鏍囩鏍忛珮搴?*/
+            min-height: 45px;
         }
 
         .gallery-tab {
@@ -546,7 +534,7 @@
             color: var(--primary);
             border-top: 2px solid var(--primary);
             font-weight: 700;
-            margin-bottom: -1px; /* 閬綇搴曢儴杈规锛屼笌鍐呭鍖鸿瀺鍚?*/
+            margin-bottom: -1px;
             z-index: 2;
         }
 
@@ -558,7 +546,7 @@
             position: relative;
         }
 
-        /* 淇敼鍗曞紶瑙嗗浘鐨勬牱寮?(閫傚簲鏂板鍣? */
+        /* 修改单张视图的样式 (适应新容器) */
         .gallery-item {
             background: white;
             border: none;
@@ -725,7 +713,7 @@
             position: relative;
         }
 
-        /* SOM graph style: synced with app3/test/SOM/index.html */
+        /* SOM graph style */
         .som-graph-container {
             background: #ffffff;
             overflow: hidden;
@@ -936,6 +924,10 @@
             }
         }
 
+        /* ============================================================
+         *  Sankey — Vertical Bottom-to-Top Layout
+         * ============================================================ */
+
         /* Sankey gallery overrides */
         .gallery-item {
             display: flex;
@@ -1019,14 +1011,20 @@
             opacity: 0.55;
         }
 
+        /* ── SVG canvas ── */
         .sankey-svg {
             width: 100%;
             height: 100%;
             display: block;
-            overflow: hidden;
-            background: #ececec;
+            overflow: visible;
+            background: transparent;
         }
 
+        .sankey-svg.sankey-vertical {
+            background: transparent;
+        }
+
+        /* ── Column titles (vertical — positioned on left side) ── */
         .sankey-column-titles text {
             font-size: 8px;
             font-weight: 700;
@@ -1035,28 +1033,41 @@
             letter-spacing: 0.2px;
         }
 
+        .sankey-column-titles-v text {
+            font-size: 8.5px;
+            font-weight: 700;
+            fill: #8a8f99;
+            pointer-events: none;
+            letter-spacing: 0.3px;
+            font-family: 'JetBrains Mono', 'SF Mono', monospace;
+        }
+
+        /* ── Links — soft, flowing appearance ── */
         .sankey-link {
             fill: none;
-            stroke-opacity: 0.56;
             stroke-linecap: round;
+            stroke-opacity: 0.48;
             vector-effect: non-scaling-stroke;
-            transition: stroke-opacity 0.2s ease, filter 0.2s ease;
+            transition: stroke-opacity 0.25s ease, filter 0.25s ease;
         }
 
         .sankey-link.is-path {
-            stroke-opacity: 0.82;
-            filter: saturate(118%);
+            stroke-opacity: 0.78;
+            filter: saturate(120%) brightness(1.02);
         }
 
         .sankey-link.is-dim {
-            stroke-opacity: 0.08;
+            stroke-opacity: 0.06;
         }
 
+        /* ── Nodes — rounded, soft shadows ── */
         .sankey-node-shape {
-            stroke-width: 0.8px;
+            stroke-width: 0.6px;
             pointer-events: all;
             vector-effect: non-scaling-stroke;
-            transition: opacity 0.2s ease, stroke-width 0.2s ease, filter 0.2s ease, fill-opacity 0.2s ease;
+            transition: opacity 0.25s ease, stroke-width 0.25s ease,
+                filter 0.25s ease, fill-opacity 0.25s ease;
+            filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.06));
         }
 
         .sankey-node.is-editable {
@@ -1064,51 +1075,58 @@
         }
 
         .sankey-node.is-editable:hover .sankey-node-shape {
-            stroke-width: 1.1px;
-            filter: brightness(0.97);
+            stroke-width: 1.2px;
+            stroke: rgba(0, 0, 0, 0.15);
+            filter: brightness(0.96) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
         }
 
         .sankey-node.is-readonly {
             cursor: default;
-            opacity: 0.9;
+            opacity: 0.88;
         }
 
         .sankey-node.is-path .sankey-node-shape {
             opacity: 1;
             stroke-width: 1.2px;
+            filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.12));
         }
 
         .sankey-node.is-dim .sankey-node-shape {
-            opacity: 0.25;
+            opacity: 0.2;
             filter: grayscale(72%);
         }
 
+        /* ── Pencil edit icon ── */
         .sankey-pencil {
-            fill: rgba(255, 255, 255, 0.95);
-            stroke: rgba(17, 24, 39, 0.7);
-            stroke-width: 0.8px;
+            fill: rgba(255, 255, 255, 0.92);
+            stroke: rgba(17, 24, 39, 0.6);
+            stroke-width: 0.7px;
             pointer-events: none;
         }
 
+        /* ── Labels ── */
         .sankey-label {
             font-size: 9px;
             font-weight: 600;
             fill: #5b6270;
             pointer-events: none;
+            font-family: 'Roboto', sans-serif;
         }
 
+        /* ── Pending output pulse ── */
         .sankey-output-pending {
-            stroke: #2563eb !important;
+            stroke: #7EA6F0 !important;
             stroke-dasharray: 4 2;
             animation: sankeyPulse 1.2s ease-in-out infinite;
         }
 
         @keyframes sankeyPulse {
-            0% { stroke-opacity: 0.45; }
+            0% { stroke-opacity: 0.4; }
             50% { stroke-opacity: 1; }
-            100% { stroke-opacity: 0.45; }
+            100% { stroke-opacity: 0.4; }
         }
 
+        /* ── Floating panels — soft glassmorphism ── */
         .sankey-floating-panel {
             position: absolute;
             z-index: 120;
@@ -1120,11 +1138,12 @@
             width: 180px;
             max-height: 220px;
             overflow-y: auto;
-            padding: 8px;
-            border: 1px solid #d1d5db;
-            border-radius: 8px;
-            background: #fff;
-            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+            padding: 10px;
+            border: 1px solid #e2e5ea;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.97);
+            box-shadow: 0 8px 28px rgba(15, 23, 42, 0.12);
+            backdrop-filter: blur(8px);
         }
 
         .sankey-palette-panel {
@@ -1136,19 +1155,19 @@
             font-size: 10px;
             font-weight: 700;
             color: #111827;
-            margin-bottom: 6px;
+            margin-bottom: 8px;
         }
 
         .sankey-panel-divider {
             font-size: 10px;
-            color: #6b7280;
+            color: #9ca3af;
             margin: 8px 0;
             text-align: center;
         }
 
         .sankey-empty-text {
             font-size: 10px;
-            color: #6b7280;
+            color: #9ca3af;
         }
 
         .sankey-alt-list {
@@ -1161,7 +1180,7 @@
             display: grid;
             grid-template-columns: 42px 1fr 22px;
             align-items: center;
-            gap: 5px;
+            gap: 6px;
             font-size: 10px;
         }
 
@@ -1169,7 +1188,7 @@
             width: 40px;
             height: 6px;
             border-radius: 99px;
-            background: #e5e7eb;
+            background: #eef0f3;
             overflow: hidden;
         }
 
@@ -1191,11 +1210,11 @@
             height: 20px;
             margin: 0;
             padding: 0;
-            border: 1px solid #cbd5e1;
-            border-radius: 4px;
+            border: 1px solid #d1d9e4;
+            border-radius: 5px;
             font-size: 11px;
             font-weight: 700;
-            color: #2563eb;
+            color: #7EA6F0;
             background: #f8fafc;
             cursor: pointer;
             text-transform: none;
@@ -1209,11 +1228,11 @@
         }
 
         .sankey-palette-slot {
-            width: 24px;
-            height: 24px;
-            border-radius: 4px;
+            width: 26px;
+            height: 26px;
+            border-radius: 5px;
             overflow: hidden;
-            border: 1px solid #d1d5db;
+            border: 1px solid #dde1e6;
             position: relative;
             cursor: pointer;
         }
@@ -1234,22 +1253,27 @@
 
         .sankey-harmony-text {
             font-size: 10px;
-            color: #1f2937;
+            color: #374151;
             margin-bottom: 6px;
         }
 
         .sankey-preset-row {
             width: 100%;
             margin: 0 0 4px 0;
-            padding: 5px;
-            border: 1px solid #e5e7eb;
-            border-radius: 6px;
+            padding: 6px;
+            border: 1px solid #eef0f3;
+            border-radius: 7px;
             background: #fff;
             display: flex;
             justify-content: space-between;
             align-items: center;
             gap: 6px;
             text-transform: none;
+            transition: border-color 0.15s ease;
+        }
+
+        .sankey-preset-row:hover {
+            border-color: #c0c8d4;
         }
 
         .sankey-preset-name {
@@ -1264,24 +1288,24 @@
 
         .sankey-preset-swatches i {
             display: inline-block;
-            width: 8px;
-            height: 8px;
-            border-radius: 2px;
-            border: 1px solid #fff;
+            width: 10px;
+            height: 10px;
+            border-radius: 3px;
+            border: 1px solid rgba(255, 255, 255, 0.6);
         }
 
         .sankey-panel-actions {
             display: flex;
             gap: 6px;
-            margin-top: 8px;
+            margin-top: 10px;
         }
 
         .sankey-panel-btn {
             flex: 1;
             margin: 0;
-            padding: 5px 6px;
-            border: 1px solid #cbd5e1;
-            border-radius: 4px;
+            padding: 6px 8px;
+            border: 1px solid #d1d9e4;
+            border-radius: 6px;
             background: #fff;
             font-size: 10px;
             color: #374151;
@@ -1289,11 +1313,12 @@
         }
 
         .sankey-panel-btn.primary {
-            border-color: #2563eb;
-            background: #eff6ff;
-            color: #2563eb;
+            border-color: #7EA6F0;
+            background: #f0f4ff;
+            color: #4a7ae0;
         }
 
+        /* ── Node enter/exit animations ── */
         .sankey-node-removing {
             animation: sankeyNodeRemoving 0.3s ease forwards;
         }
