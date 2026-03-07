@@ -3323,25 +3323,24 @@ function renderSankeyDiagram(
     });
     const maxNodesInCol = Math.max(1, ...nodesPerCol);
 
+    // nodeWidth = thickness of each column band (maps to vertical height after rotation)
     const nodeWidth = Math.max(
-        8,
-        Math.min(16, Math.floor(layoutW / 100))
+        14,
+        Math.min(28, Math.floor(layoutH / 18))
     );
-    const labelGutter = Math.max(
-        48,
-        Math.min(110, Math.floor(layoutW * 0.14))
-    );
+    // Left margin: just enough for short column title labels; no right gutter needed (labels removed)
+    const colTitleGutter = 44;
     const margins = {
-        top: 12,
-        right: labelGutter,
-        bottom: 12,
-        left: labelGutter,
+        top: 6,
+        right: 6,
+        bottom: 6,
+        left: colTitleGutter,
     };
     const innerH =
         Math.max(100, layoutH - margins.top - margins.bottom);
     const nodePad = Math.max(
-        6,
-        Math.min(20, Math.floor(innerH / (maxNodesInCol + 1)))
+        8,
+        Math.min(24, Math.floor(innerH / (maxNodesInCol + 1)))
     );
 
     // ── SVG ──
@@ -3520,20 +3519,22 @@ function renderSankeyDiagram(
 
     Object.entries(colCenterY).forEach(([colStr, cy]) => {
         const col = Number(colStr);
-        const title = SANKEY_COLUMN_TITLES[col] || `Col ${col}`;
+        const fullTitle = SANKEY_COLUMN_TITLES[col] || `Col ${col}`;
+        // Use only the Chinese part (before parenthesis) for a compact label
+        const title = fullTitle.split("(")[0].trim();
         const labelColor = SANKEY_COLUMN_COLORS[col] || "#8a8f99";
         titleLayer
             .append("text")
-            .attr("x", margins.left - 10)
+            .attr("x", margins.left - 6)
             .attr("y", cy)
             .attr("text-anchor", "end")
             .attr("dominant-baseline", "middle")
             .attr("fill", labelColor)
             .attr("font-size", "9px")
             .attr("font-weight", "700")
-            .attr("letter-spacing", "0.3px")
-            .attr("opacity", 0.85)
-            .text(shortSankeyLabel(title, 16));
+            .attr("letter-spacing", "0.5px")
+            .attr("opacity", 0.9)
+            .text(title);
     });
 
     // ── Draw links (vertical bezier) ──
@@ -3652,27 +3653,51 @@ function renderSankeyDiagram(
             return `M${cx - 3},${cy - 5} l4,-2 l2,2 l-4,2 z`;
         });
 
-    // ── Labels (right side of each node) ──
-    root.append("g")
-        .attr("class", "sankey-label-layer")
-        .selectAll("text")
-        .data(sankeyLayout.nodes)
-        .join("text")
-        .attr("class", "sankey-label")
-        .attr("x", (d) => d.vx1 + 6)
-        .attr("y", (d) => (d.vy0 + d.vy1) / 2)
-        .attr("dy", "0.32em")
-        .attr("text-anchor", "start")
-        .text((d) => {
-            const col = Number(d.column || 0);
-            return shortSankeyLabel(
-                d.name,
-                col === SANKEY_COLUMN_COUNT - 1 ? 16 : 12
-            );
+    // ── Auto-fit scene into viewport ──
+    fitSankeySceneToViewport(root, viewW, viewH, 8);
+
+    // ── Hover tooltip (HTML overlay, no static labels on nodes) ──
+    const tooltipEl = document.createElement("div");
+    tooltipEl.className = "sankey-node-tooltip";
+    tooltipEl.style.display = "none";
+    containerElement.appendChild(tooltipEl);
+
+    const typeLabels = {
+        data_insight: "洞察",
+        design_element: "设计元素",
+        palette: "配色",
+        output: "输出",
+    };
+
+    nodeSel
+        .on("mousemove.tooltip", (event) => {
+            const rect = containerElement.getBoundingClientRect();
+            let tx = event.clientX - rect.left + 14;
+            let ty = event.clientY - rect.top - 40;
+            // Keep within container bounds
+            if (tx + 180 > containerElement.clientWidth) tx -= 180;
+            if (ty < 4) ty = event.clientY - rect.top + 14;
+            tooltipEl.style.left = `${tx}px`;
+            tooltipEl.style.top = `${ty}px`;
         });
 
-    // ── Auto-fit scene into viewport ──
-    fitSankeySceneToViewport(root, viewW, viewH, 16);
+    // Augment existing mouseenter/mouseleave to also drive tooltip
+    nodeSel.each(function (d) {
+        const el = d3.select(this);
+        const origEnter = el.on("mouseenter");
+        const origLeave = el.on("mouseleave");
+
+        el.on("mouseenter.tooltip", (event, datum) => {
+            const typeLabel = typeLabels[datum.nodeType] || datum.nodeType || "";
+            tooltipEl.innerHTML =
+                `<div>${datum.name}</div>` +
+                (typeLabel ? `<div class="tooltip-type">${typeLabel}</div>` : "");
+            tooltipEl.style.display = "block";
+        });
+        el.on("mouseleave.tooltip", () => {
+            tooltipEl.style.display = "none";
+        });
+    });
 
     // ── Click to close floating panels ──
     if (!isAggregate) {
