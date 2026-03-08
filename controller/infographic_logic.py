@@ -378,76 +378,59 @@ def _extract_features_from_pool(pool_data):
     return features, node_metadata
 
 
-def _build_force_graph(raw_runs, min_node_freq=1):
-    node_freq = defaultdict(int)
-    edge_freq = defaultdict(int)
-    global_metadata = {}
-
-    for run in raw_runs:
-        pool = run.get("generated_scheme", {}).get("element_pool", {})
-        features, metadata = _extract_features_from_pool(pool)
-        global_metadata.update(metadata)
-
-        for node in features:
-            node_freq[node] += 1
-
-        for u, v in combinations(sorted(features), 2):
-            edge_freq[(u, v)] += 1
-
-    nodes = []
-    valid_nodes = set()
-    layer_rank = {layer: idx for idx, layer in enumerate(_LAYER_ORDER)}
-    for node_id, freq in node_freq.items():
-        if freq < min_node_freq:
-            continue
-
-        meta = global_metadata.get(node_id, {})
-        valid_nodes.add(node_id)
-        nodes.append(
-            {
-                "id": node_id,
-                "name": meta.get("label", node_id),
-                "group": meta.get("group", "Unknown"),
-                "group_id": meta.get("group_id", "unknown_group"),
-                "layer": meta.get("layer", "top_layer"),
-                "desc": meta.get("desc", ""),
-                "val": freq,
-                "option_payload": meta.get("option_payload", {}),
-                "is_palette_node": bool(meta.get("is_palette_node", False)),
-            }
-        )
-
-    nodes.sort(
-        key=lambda n: (
-            layer_rank.get(n.get("layer"), 99),
-            n.get("group_id", ""),
-            -int(n.get("val", 0)),
-            n.get("name", ""),
-        )
-    )
-
-    links = []
-    for (u, v), co_occur in edge_freq.items():
-        if u not in valid_nodes or v not in valid_nodes or co_occur <= 0:
-            continue
-
-        denom = node_freq[u] + node_freq[v] - co_occur
-        jaccard = (co_occur / denom) if denom > 0 else 0.0
-        layer_u = global_metadata.get(u, {}).get("layer")
-        layer_v = global_metadata.get(v, {}).get("layer")
-        is_intra = layer_u == layer_v
-
-        links.append(
-            {
-                "source": u,
-                "target": v,
-                "weight": co_occur,
-                "jaccard": round(jaccard, 4),
-                "is_intra": is_intra,
-            }
-        )
-
-    return {"nodes": nodes, "links": links}
+# [FORCE-DISABLED] _build_force_graph — builds nodes/links with Jaccard-weighted edges
+# for the force-directed graph layout. Not used in SOM mode.
+# def _build_force_graph(raw_runs, min_node_freq=1):
+#     node_freq = defaultdict(int)
+#     edge_freq = defaultdict(int)
+#     global_metadata = {}
+#     for run in raw_runs:
+#         pool = run.get("generated_scheme", {}).get("element_pool", {})
+#         features, metadata = _extract_features_from_pool(pool)
+#         global_metadata.update(metadata)
+#         for node in features:
+#             node_freq[node] += 1
+#         for u, v in combinations(sorted(features), 2):
+#             edge_freq[(u, v)] += 1
+#     nodes = []
+#     valid_nodes = set()
+#     layer_rank = {layer: idx for idx, layer in enumerate(_LAYER_ORDER)}
+#     for node_id, freq in node_freq.items():
+#         if freq < min_node_freq:
+#             continue
+#         meta = global_metadata.get(node_id, {})
+#         valid_nodes.add(node_id)
+#         nodes.append({
+#             "id": node_id,
+#             "name": meta.get("label", node_id),
+#             "group": meta.get("group", "Unknown"),
+#             "group_id": meta.get("group_id", "unknown_group"),
+#             "layer": meta.get("layer", "top_layer"),
+#             "desc": meta.get("desc", ""),
+#             "val": freq,
+#             "option_payload": meta.get("option_payload", {}),
+#             "is_palette_node": bool(meta.get("is_palette_node", False)),
+#         })
+#     nodes.sort(key=lambda n: (
+#         layer_rank.get(n.get("layer"), 99),
+#         n.get("group_id", ""),
+#         -int(n.get("val", 0)),
+#         n.get("name", ""),
+#     ))
+#     links = []
+#     for (u, v), co_occur in edge_freq.items():
+#         if u not in valid_nodes or v not in valid_nodes or co_occur <= 0:
+#             continue
+#         denom = node_freq[u] + node_freq[v] - co_occur
+#         jaccard = (co_occur / denom) if denom > 0 else 0.0
+#         layer_u = global_metadata.get(u, {}).get("layer")
+#         layer_v = global_metadata.get(v, {}).get("layer")
+#         is_intra = layer_u == layer_v
+#         links.append({
+#             "source": u, "target": v,
+#             "weight": co_occur, "jaccard": round(jaccard, 4), "is_intra": is_intra,
+#         })
+#     return {"nodes": nodes, "links": links}
 
 
 def _build_group_defaults(nodes):
@@ -824,25 +807,20 @@ def normalize_uploaded_runs_payload(payload):
     return raw_runs
 
 
-def generate_force_graph_bundle_from_runs(raw_runs):
-    if not isinstance(raw_runs, list) or not raw_runs:
-        raise ValueError("raw_runs must be a non-empty list")
-
-    graph_data = _build_force_graph(raw_runs, min_node_freq=1)
-    if not graph_data.get("nodes"):
-        raise ValueError("No force-graph nodes could be built from uploaded runs.")
-    group_defaults = _build_group_defaults(graph_data.get("nodes", []))
-
-    return {
-        "target_count": len(raw_runs),
-        "success_count": len(raw_runs),
-        "failed_count": 0,
-        "attempted_count": len(raw_runs),
-        "max_attempts": len(raw_runs),
-        "graph_data": graph_data,
-        "group_defaults": group_defaults,
-        "layout_mode": _FORCE_LAYOUT_MODE,
-    }
+# [FORCE-DISABLED] generate_force_graph_bundle_from_runs — builds a force-graph bundle from uploaded runs
+# def generate_force_graph_bundle_from_runs(raw_runs):
+#     if not isinstance(raw_runs, list) or not raw_runs:
+#         raise ValueError("raw_runs must be a non-empty list")
+#     graph_data = _build_force_graph(raw_runs, min_node_freq=1)
+#     if not graph_data.get("nodes"):
+#         raise ValueError("No force-graph nodes could be built from uploaded runs.")
+#     group_defaults = _build_group_defaults(graph_data.get("nodes", []))
+#     return {
+#         "target_count": len(raw_runs), "success_count": len(raw_runs),
+#         "failed_count": 0, "attempted_count": len(raw_runs), "max_attempts": len(raw_runs),
+#         "graph_data": graph_data, "group_defaults": group_defaults,
+#         "layout_mode": _FORCE_LAYOUT_MODE,
+#     }
 
 
 def generate_som_bundle_from_runs(raw_runs):
@@ -1048,80 +1026,46 @@ def _sample_runs_for_graph_generation(
     }
 
 
-def generate_force_graph_bundle(
-    description,
-    query,
-    analysis_result,
-    chart_json,
-    sample_count=FORCE_GRAPH_DEFAULT_SAMPLE_COUNT,
-    progress_callback=None,
-    job_id=None,
-):
-    sample_result = _sample_runs_for_graph_generation(
-        description=description,
-        query=query,
-        analysis_result=analysis_result,
-        chart_json=chart_json,
-        sample_count=sample_count,
-        progress_callback=progress_callback,
-        mode_label="force-graph",
-        layout_mode=_FORCE_LAYOUT_MODE,
-        job_id=job_id,
-    )
-
-    raw_runs = sample_result["raw_runs"]
-    target_count = sample_result["target_count"]
-    failed_count = sample_result["failed_count"]
-    completed_attempts = sample_result["completed_attempts"]
-    max_attempts = sample_result["max_attempts"]
-    saved_runs_json = sample_result.get("saved_runs_json")
-    used_cached_runs = bool(sample_result.get("used_cached_runs"))
-
-    if callable(progress_callback):
-        progress_callback(
-            {
-                "stage": "building_graph",
-                "progress": 94,
-                "message": "Building force graph structure...",
-                "attempted_count": completed_attempts,
-                "max_attempts": max_attempts,
-                "success_count": len(raw_runs),
-                "failed_count": failed_count,
-                "target_count": target_count,
-            }
-        )
-
-    graph_data = _build_force_graph(raw_runs, min_node_freq=1)
-    group_defaults = _build_group_defaults(graph_data.get("nodes", []))
-
-    bundle = {
-        "target_count": target_count,
-        "success_count": len(raw_runs),
-        "failed_count": failed_count,
-        "attempted_count": completed_attempts,
-        "max_attempts": max_attempts,
-        "graph_data": graph_data,
-        "group_defaults": group_defaults,
-        "layout_mode": _FORCE_LAYOUT_MODE,
-        "saved_runs_json": saved_runs_json,
-        "used_cached_runs": used_cached_runs,
-    }
-
-    if callable(progress_callback):
-        progress_callback(
-            {
-                "stage": "completed",
-                "progress": 100,
-                "message": "Force graph generation completed.",
-                "attempted_count": completed_attempts,
-                "max_attempts": max_attempts,
-                "success_count": len(raw_runs),
-                "failed_count": failed_count,
-                "target_count": target_count,
-            }
-        )
-
-    return bundle
+# [FORCE-DISABLED] generate_force_graph_bundle — full force-graph generation pipeline
+# (sample runs → _build_force_graph → bundle). Not called in SOM mode.
+# def generate_force_graph_bundle(
+#     description, query, analysis_result, chart_json,
+#     sample_count=FORCE_GRAPH_DEFAULT_SAMPLE_COUNT, progress_callback=None, job_id=None,
+# ):
+#     sample_result = _sample_runs_for_graph_generation(
+#         description=description, query=query, analysis_result=analysis_result,
+#         chart_json=chart_json, sample_count=sample_count, progress_callback=progress_callback,
+#         mode_label="force-graph", layout_mode=_FORCE_LAYOUT_MODE, job_id=job_id,
+#     )
+#     raw_runs = sample_result["raw_runs"]
+#     target_count = sample_result["target_count"]
+#     failed_count = sample_result["failed_count"]
+#     completed_attempts = sample_result["completed_attempts"]
+#     max_attempts = sample_result["max_attempts"]
+#     saved_runs_json = sample_result.get("saved_runs_json")
+#     used_cached_runs = bool(sample_result.get("used_cached_runs"))
+#     if callable(progress_callback):
+#         progress_callback({"stage": "building_graph", "progress": 94,
+#                            "message": "Building force graph structure...",
+#                            "attempted_count": completed_attempts, "max_attempts": max_attempts,
+#                            "success_count": len(raw_runs), "failed_count": failed_count,
+#                            "target_count": target_count})
+#     graph_data = _build_force_graph(raw_runs, min_node_freq=1)
+#     group_defaults = _build_group_defaults(graph_data.get("nodes", []))
+#     bundle = {
+#         "target_count": target_count, "success_count": len(raw_runs),
+#         "failed_count": failed_count, "attempted_count": completed_attempts,
+#         "max_attempts": max_attempts, "graph_data": graph_data,
+#         "group_defaults": group_defaults, "layout_mode": _FORCE_LAYOUT_MODE,
+#         "saved_runs_json": saved_runs_json, "used_cached_runs": used_cached_runs,
+#     }
+#     if callable(progress_callback):
+#         progress_callback({"stage": "completed", "progress": 100,
+#                            "message": "Force graph generation completed.",
+#                            "attempted_count": completed_attempts, "max_attempts": max_attempts,
+#                            "success_count": len(raw_runs), "failed_count": failed_count,
+#                            "target_count": target_count})
+#     return bundle
 
 
 def generate_som_bundle(
@@ -1240,15 +1184,13 @@ def _run_force_graph_job(job_id, description, query, analysis_result, chart_json
                 job_id=job_id,
             )
         else:
-            bundle = generate_force_graph_bundle(
-                description=description,
-                query=query,
-                analysis_result=analysis_result,
-                chart_json=chart_json,
-                sample_count=sample_count,
-                progress_callback=on_progress,
-                job_id=job_id,
-            )
+            # [FORCE-DISABLED] Force graph bundle generation path
+            # bundle = generate_force_graph_bundle(
+            #     description=description, query=query, analysis_result=analysis_result,
+            #     chart_json=chart_json, sample_count=sample_count,
+            #     progress_callback=on_progress, job_id=job_id,
+            # )
+            raise ValueError(f"Force layout mode is disabled. Received layout_mode='{normalized_mode}'.")
 
         completion_message = "Completed (used cached JSON)" if bundle.get("used_cached_runs") else "Completed"
         _update_force_graph_job(
