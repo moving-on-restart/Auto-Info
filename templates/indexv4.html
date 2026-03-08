@@ -95,7 +95,9 @@
                     <div class="graph-title-wrap">
                         <span id="graphExplorerTitle">FORCE-GUIDED SCHEME EXPLORER</span>
                         <div class="graph-layout-toggle" id="graphLayoutToggle">
+                            <!-- [FORCE-DISABLED] Force layout toggle button
                             <button id="btnLayoutForce" class="graph-layout-btn active" type="button">FORCE</button>
+                            -->
                             <button id="btnLayoutSom" class="graph-layout-btn" type="button">SOM</button>
                         </div>
                     </div>
@@ -106,11 +108,13 @@
                     </div>
                 </div>
 
+                <!-- [FORCE-DISABLED] Force step indicator bar — layer-by-layer selection progress
                 <div class="force-step-bar" id="forceStepIndicator">
                     <div class="force-step-chip active" data-step="0">1. Bottom Layer</div>
                     <div class="force-step-chip" data-step="1">2. Middle Layer</div>
                     <div class="force-step-chip" data-step="2">3. Top Layer</div>
                 </div>
+                -->
 
                 <div id="forceGraphContainer" class="force-graph-container">
                     <div class="center-msg">Click "Build Force Graph (100 JSON)" to start</div>

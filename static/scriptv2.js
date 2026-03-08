@@ -62,7 +62,7 @@ const somColorPalettes = [
     { scale: d3.interpolateCividis, hex: "#2c3e50" },
 ];
 
-let forceStep = 0;
+// let forceStep = 0; // [FORCE-DISABLED] Force layout step counter — not used when force is off
 let selectedNodes = [];
 let somStep = 0;
 let somPhases = [];
@@ -266,15 +266,16 @@ function updateGraphModeUI() {
     setGraphContainerModeClass();
 }
 
-function useForceGraphAsActiveData() {
-    fullGraphData = forceGraphData;
-    graphLinkWeightCache = null;
-    graphLinkWeightCacheRef = null;
-    graphNodeMap = {};
-    (fullGraphData?.nodes || []).forEach((node) => {
-        graphNodeMap[node.id] = node;
-    });
-}
+// [FORCE-DISABLED] useForceGraphAsActiveData — sets forceGraphData as the active graph data
+// function useForceGraphAsActiveData() {
+//     fullGraphData = forceGraphData;
+//     graphLinkWeightCache = null;
+//     graphLinkWeightCacheRef = null;
+//     graphNodeMap = {};
+//     (fullGraphData?.nodes || []).forEach((node) => {
+//         graphNodeMap[node.id] = node;
+//     });
+// }
 
 function normalizeSomElement(rawElement) {
     if (!rawElement || typeof rawElement !== "object") return null;
@@ -470,18 +471,19 @@ function setGraphLayoutMode(mode, opts = {}) {
         return;
     }
 
-    hideSomTooltip();
-    if (forceGraphData && Array.isArray(forceGraphData.nodes) && forceGraphData.nodes.length > 0) {
-        useForceGraphAsActiveData();
-        initForceExplorer();
-    } else {
-        fullGraphData = null;
-        graphLinkWeightCache = null;
-        graphLinkWeightCacheRef = null;
-        graphNodeMap = {};
-        renderDesignSummary();
-        renderGraphPlaceholder();
-    }
+    // [FORCE-DISABLED] Force layout branch — unreachable when showForceLayoutOption=false
+    // hideSomTooltip();
+    // if (forceGraphData && Array.isArray(forceGraphData.nodes) && forceGraphData.nodes.length > 0) {
+    //     useForceGraphAsActiveData();
+    //     initForceExplorer();
+    // } else {
+    //     fullGraphData = null;
+    //     graphLinkWeightCache = null;
+    //     graphLinkWeightCacheRef = null;
+    //     graphNodeMap = {};
+    //     renderDesignSummary();
+    //     renderGraphPlaceholder();
+    // }
 }
 
 function toggleLoading(id, show) {
@@ -526,34 +528,34 @@ function getNodeDescription(node) {
     return "";
 }
 
-function moveForceNodeTooltip(event) {
-    const tooltip = getForceNodeTooltip();
-    if (tooltip.style.display === "none") return;
+// [FORCE-DISABLED] moveForceNodeTooltip — repositions the force node hover tooltip
+// function moveForceNodeTooltip(event) {
+//     const tooltip = getForceNodeTooltip();
+//     if (tooltip.style.display === "none") return;
+//     const gap = 12;
+//     const maxX = window.innerWidth - tooltip.offsetWidth - 8;
+//     const maxY = window.innerHeight - tooltip.offsetHeight - 8;
+//     const x = Math.max(8, Math.min(maxX, event.clientX + gap));
+//     const y = Math.max(8, Math.min(maxY, event.clientY + gap));
+//     tooltip.style.left = `${x}px`;
+//     tooltip.style.top = `${y}px`;
+// }
 
-    const gap = 12;
-    const maxX = window.innerWidth - tooltip.offsetWidth - 8;
-    const maxY = window.innerHeight - tooltip.offsetHeight - 8;
-    const x = Math.max(8, Math.min(maxX, event.clientX + gap));
-    const y = Math.max(8, Math.min(maxY, event.clientY + gap));
-
-    tooltip.style.left = `${x}px`;
-    tooltip.style.top = `${y}px`;
-}
-
-function showForceNodeTooltip(event, node) {
-    const tooltip = getForceNodeTooltip();
-    const desc = getNodeDescription(node);
-    tooltip.innerHTML = `
-        <div class="tt-title">${escapeHtml(node?.name || "Node")}</div>
-        <div class="tt-row"><span>Category</span><b>${escapeHtml(node?.group || node?.group_id || "Unknown")}</b></div>
-        <div class="tt-row"><span>Layer</span><b>${escapeHtml(getLayerLabel(node?.layer))}</b></div>
-        <div class="tt-row"><span>Frequency</span><b>${escapeHtml(node?.val ?? "N/A")}</b></div>
-        <div class="tt-row"><span>Group ID</span><b>${escapeHtml(node?.group_id || "N/A")}</b></div>
-        ${desc ? `<div class="tt-desc">${escapeHtml(desc)}</div>` : ""}
-    `;
-    tooltip.style.display = "block";
-    moveForceNodeTooltip(event);
-}
+// [FORCE-DISABLED] showForceNodeTooltip — displays tooltip for a force graph node on hover
+// function showForceNodeTooltip(event, node) {
+//     const tooltip = getForceNodeTooltip();
+//     const desc = getNodeDescription(node);
+//     tooltip.innerHTML = `
+//         <div class="tt-title">${escapeHtml(node?.name || "Node")}</div>
+//         <div class="tt-row"><span>Category</span><b>${escapeHtml(node?.group || node?.group_id || "Unknown")}</b></div>
+//         <div class="tt-row"><span>Layer</span><b>${escapeHtml(getLayerLabel(node?.layer))}</b></div>
+//         <div class="tt-row"><span>Frequency</span><b>${escapeHtml(node?.val ?? "N/A")}</b></div>
+//         <div class="tt-row"><span>Group ID</span><b>${escapeHtml(node?.group_id || "N/A")}</b></div>
+//         ${desc ? `<div class="tt-desc">${escapeHtml(desc)}</div>` : ""}
+//     `;
+//     tooltip.style.display = "block";
+//     moveForceNodeTooltip(event);
+// }
 
 function hideForceNodeTooltip() {
     const tooltip = getForceNodeTooltip();
@@ -696,29 +698,29 @@ function applyGraphBundleByMode(data, modeHint = "force") {
         return true;
     }
 
-    if (!isForceLayoutEnabled()) {
-        alert("Force layout is disabled in frontend settings. Set showForceLayoutOption = true to enable it.");
-        return false;
-    }
-
-    forceGraphData = data.graph_data || { nodes: [], links: [] };
-    if (!Array.isArray(forceGraphData.nodes) || forceGraphData.nodes.length === 0) {
-        alert("No nodes returned from force-graph planning.");
-        return false;
-    }
-
-    if (Number(data.success_count || 0) < Number(data.target_count || 50)) {
-        alert(`Generated ${data.success_count} valid JSON plans (target ${data.target_count || 50}).`);
-    }
-
-    setGraphLayoutMode("force");
-    switchTab(3);
-    return true;
+    // [FORCE-DISABLED] Force layout branch — disabled via showForceLayoutOption=false
+    // if (!isForceLayoutEnabled()) {
+    //     alert("Force layout is disabled in frontend settings. Set showForceLayoutOption = true to enable it.");
+    //     return false;
+    // }
+    // forceGraphData = data.graph_data || { nodes: [], links: [] };
+    // if (!Array.isArray(forceGraphData.nodes) || forceGraphData.nodes.length === 0) {
+    //     alert("No nodes returned from force-graph planning.");
+    //     return false;
+    // }
+    // if (Number(data.success_count || 0) < Number(data.target_count || 50)) {
+    //     alert(`Generated ${data.success_count} valid JSON plans (target ${data.target_count || 50}).`);
+    // }
+    // setGraphLayoutMode("force");
+    // switchTab(3);
+    // return true;
+    return false;
 }
 
-function applyForceGraphBundle(data) {
-    return applyGraphBundleByMode(data, "force");
-}
+// [FORCE-DISABLED] applyForceGraphBundle — applies a force-graph bundle to the UI
+// function applyForceGraphBundle(data) {
+//     return applyGraphBundleByMode(data, "force");
+// }
 
 function switchTab(index) {
     document.querySelectorAll(".tab-btn").forEach((b, i) => b.classList.toggle("active", i === index));
@@ -1145,41 +1147,37 @@ function removeSelectedNodeById(nodeId) {
     }
 }
 
-function toggleForceNodeSelection(node) {
-    if (graphLayoutMode !== "force") return;
-    if (!node || layerOrder[forceStep] !== node.layer) return;
-
-    const existed = isNodeSelected(node.id);
-    if (existed) {
-        removeSelectedNodeById(node.id);
-        renderForceStep();
-        renderDesignSummary();
-        return;
-    }
-
-    const sameGroupNode = selectedNodes.find((n) => n.layer === node.layer && n.group_id === node.group_id);
-    if (sameGroupNode) {
-        removeSelectedNodeById(sameGroupNode.id);
-    }
-
-    selectedNodes.push(node);
-
-    if (node.group_id === "color_scheme") {
-        selectedColorNodeId = node.id;
-        selectedPaletteMeta = null;
-        const generateBtn = document.getElementById("btnGeneratePaletteFromNode");
-        if (generateBtn) generateBtn.disabled = false;
-        const hint = document.getElementById("paletteNodeHint");
-        if (hint) {
-            const desc = node.desc ? ` | ${node.desc}` : "";
-            hint.textContent = `${node.name}${desc}`;
-        }
-        generatePaletteFromSelectedColorNode({ reuseImage: false });
-    }
-
-    renderForceStep();
-    renderDesignSummary();
-}
+// [FORCE-DISABLED] toggleForceNodeSelection — handles node click selection in force graph
+// function toggleForceNodeSelection(node) {
+//     if (graphLayoutMode !== "force") return;
+//     if (!node || layerOrder[forceStep] !== node.layer) return;
+//     const existed = isNodeSelected(node.id);
+//     if (existed) {
+//         removeSelectedNodeById(node.id);
+//         renderForceStep();
+//         renderDesignSummary();
+//         return;
+//     }
+//     const sameGroupNode = selectedNodes.find((n) => n.layer === node.layer && n.group_id === node.group_id);
+//     if (sameGroupNode) {
+//         removeSelectedNodeById(sameGroupNode.id);
+//     }
+//     selectedNodes.push(node);
+//     if (node.group_id === "color_scheme") {
+//         selectedColorNodeId = node.id;
+//         selectedPaletteMeta = null;
+//         const generateBtn = document.getElementById("btnGeneratePaletteFromNode");
+//         if (generateBtn) generateBtn.disabled = false;
+//         const hint = document.getElementById("paletteNodeHint");
+//         if (hint) {
+//             const desc = node.desc ? ` | ${node.desc}` : "";
+//             hint.textContent = `${node.name}${desc}`;
+//         }
+//         generatePaletteFromSelectedColorNode({ reuseImage: false });
+//     }
+//     renderForceStep();
+//     renderDesignSummary();
+// }
 
 function getSourceId(link) {
     return typeof link.source === "object" ? link.source.id : link.source;
@@ -1189,246 +1187,209 @@ function getTargetId(link) {
     return typeof link.target === "object" ? link.target.id : link.target;
 }
 
-function computeActiveGraphData() {
-    if (!fullGraphData) return { nodes: [], links: [] };
+// [FORCE-DISABLED] computeActiveGraphData — computes visible nodes/links for the current force step
+// function computeActiveGraphData() {
+//     if (!fullGraphData) return { nodes: [], links: [] };
+//     let activeNodes = [...selectedNodes];
+//     let candidateNodes = [];
+//     if (forceStep < layerOrder.length) {
+//         const currentLayer = layerOrder[forceStep];
+//         candidateNodes = fullGraphData.nodes.filter((n) => n.layer === currentLayer);
+//         if (forceStep > 0) {
+//             const pastSelectedIds = new Set(
+//                 selectedNodes
+//                     .filter((n) => layerOrder.indexOf(n.layer) < forceStep)
+//                     .map((n) => n.id)
+//             );
+//             const validIds = new Set();
+//             fullGraphData.links.forEach((link) => {
+//                 if (link.is_intra) return;
+//                 const sId = getSourceId(link);
+//                 const tId = getTargetId(link);
+//                 if (pastSelectedIds.has(sId)) validIds.add(tId);
+//                 if (pastSelectedIds.has(tId)) validIds.add(sId);
+//             });
+//             const filtered = candidateNodes.filter((n) => validIds.has(n.id));
+//             if (filtered.length > 0) candidateNodes = filtered;
+//         }
+//         candidateNodes.forEach((n) => {
+//             if (!activeNodes.some((s) => s.id === n.id)) activeNodes.push(n);
+//         });
+//     }
+//     const activeNodeIds = new Set(activeNodes.map((n) => n.id));
+//     const activeLinks = fullGraphData.links.filter((link) => {
+//         const sId = getSourceId(link);
+//         const tId = getTargetId(link);
+//         if (!activeNodeIds.has(sId) || !activeNodeIds.has(tId)) return false;
+//         if (link.is_intra) return true;
+//         const sourceSelected = selectedNodes.some((n) => n.id === sId);
+//         const targetSelected = selectedNodes.some((n) => n.id === tId);
+//         return sourceSelected || targetSelected;
+//     });
+//     return { nodes: activeNodes, links: activeLinks };
+// }
 
-    let activeNodes = [...selectedNodes];
-    let candidateNodes = [];
+// [FORCE-DISABLED] renderForceGraph — core D3 force-simulation rendering function
+// Draws nodes/links with d3.forceSimulation (charge, link, collide, x/y forces) and drag interaction.
+// function renderForceGraph(nodes, links) {
+//     if (graphLayoutMode !== "force") return;
+//     const container = document.getElementById("forceGraphContainer");
+//     if (!container) return;
+//     setGraphContainerModeClass();
+//     hideSomTooltip();
+//     container.innerHTML = "";
+//     if (typeof d3 === "undefined") {
+//         container.innerHTML = '<div class="center-msg">D3 failed to load. Upload/analysis still works.</div>';
+//         return;
+//     }
+//     if (!nodes.length) {
+//         container.innerHTML = '<div class="center-msg">No nodes available for current step</div>';
+//         return;
+//     }
+//     const rect = container.getBoundingClientRect();
+//     const width = Math.max(600, Math.floor(rect.width));
+//     const height = Math.max(240, Math.floor(rect.height));
+//     const svg = d3.select(container).append("svg").attr("width", width).attr("height", height);
+//     const root = svg.append("g");
+//     svg.call(d3.zoom().on("zoom", (event) => root.attr("transform", event.transform)));
+//     const linkSel = root.append("g")
+//         .selectAll("line")
+//         .data(links, (d) => `${getSourceId(d)}-${getTargetId(d)}`)
+//         .join("line")
+//         .attr("stroke", (d) => (d.is_intra ? "transparent" : "#b9c1cc"))
+//         .attr("stroke-opacity", (d) => (d.is_intra ? 0 : 0.65))
+//         .attr("stroke-width", (d) => (d.is_intra ? 0 : Math.max(1, Number(d.jaccard || 0) * 10)));
+//     const nodeSel = root.append("g")
+//         .selectAll("g")
+//         .data(nodes, (d) => d.id)
+//         .join((enter) => {
+//             const g = enter.append("g").style("cursor", "pointer");
+//             g.append("circle");
+//             g.append("text");
+//             return g;
+//         })
+//         .on("click", (event, d) => {
+//             event.stopPropagation();
+//             hideForceNodeTooltip();
+//             toggleForceNodeSelection(d);
+//         })
+//         .on("mouseover", (event, d) => { showForceNodeTooltip(event, d); })
+//         .on("mousemove", (event) => { moveForceNodeTooltip(event); })
+//         .on("mouseout", () => { hideForceNodeTooltip(); });
+//     nodeSel.select("circle")
+//         .attr("r", (d) => Math.sqrt(Number(d.val || 1)) * 2.4 + 11)
+//         .attr("fill", (d) => colorForGroup(d.group_id || d.group || "unknown"))
+//         .attr("stroke", (d) => (isNodeSelected(d.id) ? "#ef4444" : "#ffffff"))
+//         .attr("stroke-width", (d) => (isNodeSelected(d.id) ? 4 : 2.5))
+//         .attr("opacity", (d) => {
+//             if (forceStep >= layerOrder.length) return isNodeSelected(d.id) ? 1 : 0.75;
+//             if (d.layer !== layerOrder[forceStep]) return 0.95;
+//             return isNodeSelected(d.id) ? 1 : 0.68;
+//         });
+//     nodeSel.select("text")
+//         .text((d) => d.name)
+//         .attr("y", (d) => Math.sqrt(Number(d.val || 1)) * 2.4 + 24)
+//         .attr("text-anchor", "middle")
+//         .style("font-size", "11px")
+//         .style("font-weight", 600)
+//         .style("fill", "#1f2937")
+//         .style("pointer-events", "none");
+//     const simulation = d3.forceSimulation(nodes)
+//         .force("link", d3.forceLink(links)
+//             .id((d) => d.id)
+//             .distance((d) => (d.is_intra ? Math.max(35, 55 - Number(d.jaccard || 0) * 35) : 190))
+//             .strength((d) => (d.is_intra ? Math.max(0.1, Number(d.jaccard || 0) * 1.8) : Math.max(0.03, Number(d.jaccard || 0) * 0.7))))
+//         .force("charge", d3.forceManyBody().strength(-420))
+//         .force("x", d3.forceX((d) => {
+//             const idx = layerOrder.indexOf(d.layer);
+//             return (idx + 1) * (width / 4);
+//         }).strength(0.8))
+//         .force("y", d3.forceY(height / 2).strength(0.1))
+//         .force("collide", d3.forceCollide().radius((d) => Math.sqrt(Number(d.val || 1)) * 2.4 + 22));
+//     nodeSel.call(
+//         d3.drag()
+//             .on("start", (event, d) => {
+//                 if (!event.active) simulation.alphaTarget(0.3).restart();
+//                 d.fx = d.x; d.fy = d.y;
+//             })
+//             .on("drag", (event, d) => { d.fx = event.x; d.fy = event.y; })
+//             .on("end", (event, d) => {
+//                 if (!event.active) simulation.alphaTarget(0);
+//                 d.fx = null; d.fy = null;
+//             })
+//     );
+//     simulation.on("tick", () => {
+//         linkSel.attr("x1", (d) => d.source.x).attr("y1", (d) => d.source.y)
+//                .attr("x2", (d) => d.target.x).attr("y2", (d) => d.target.y);
+//         nodeSel.attr("transform", (d) => `translate(${d.x},${d.y})`);
+//     });
+// }
 
-    if (forceStep < layerOrder.length) {
-        const currentLayer = layerOrder[forceStep];
-        candidateNodes = fullGraphData.nodes.filter((n) => n.layer === currentLayer);
+// [FORCE-DISABLED] updateForceStepUI — updates step chips and Next/Generate buttons for force flow
+// function updateForceStepUI() {
+//     if (graphLayoutMode !== "force") return;
+//     const chips = document.querySelectorAll(".force-step-chip");
+//     chips.forEach((chip, index) => {
+//         chip.classList.remove("active", "done");
+//         if (index < forceStep) chip.classList.add("done");
+//         else if (index === forceStep) chip.classList.add("active");
+//     });
+//     const btnNext = document.getElementById("btnForceNext");
+//     const btnGenerate = document.getElementById("btnForceGenerate");
+//     if (forceStep >= layerOrder.length) {
+//         if (btnNext) btnNext.style.display = "none";
+//         if (btnGenerate) btnGenerate.style.display = "inline-block";
+//     } else {
+//         if (btnNext) btnNext.style.display = "inline-block";
+//         if (btnGenerate) btnGenerate.style.display = "none";
+//     }
+// }
 
-        if (forceStep > 0) {
-            const pastSelectedIds = new Set(
-                selectedNodes
-                    .filter((n) => layerOrder.indexOf(n.layer) < forceStep)
-                    .map((n) => n.id)
-            );
+// [FORCE-DISABLED] renderForceStep — re-renders the force graph for the current layer step
+// function renderForceStep() {
+//     if (graphLayoutMode !== "force") return;
+//     updateForceStepUI();
+//     const data = computeActiveGraphData();
+//     renderForceGraph(data.nodes, data.links);
+// }
 
-            const validIds = new Set();
-            fullGraphData.links.forEach((link) => {
-                if (link.is_intra) return;
-                const sId = getSourceId(link);
-                const tId = getTargetId(link);
-                if (pastSelectedIds.has(sId)) validIds.add(tId);
-                if (pastSelectedIds.has(tId)) validIds.add(sId);
-            });
+// [FORCE-DISABLED] initForceExplorer — initialises the force graph explorer from forceGraphData
+// function initForceExplorer() {
+//     if (!forceGraphData || !Array.isArray(forceGraphData.nodes) || !forceGraphData.nodes.length) {
+//         renderGraphPlaceholder();
+//         return;
+//     }
+//     useForceGraphAsActiveData();
+//     forceStep = 0;
+//     selectedNodes = [];
+//     clearPaletteSelectionState();
+//     renderForceStep();
+//     renderDesignSummary();
+// }
 
-            const filtered = candidateNodes.filter((n) => validIds.has(n.id));
-            if (filtered.length > 0) candidateNodes = filtered;
-        }
-
-        candidateNodes.forEach((n) => {
-            if (!activeNodes.some((s) => s.id === n.id)) activeNodes.push(n);
-        });
-    }
-
-    const activeNodeIds = new Set(activeNodes.map((n) => n.id));
-
-    const activeLinks = fullGraphData.links.filter((link) => {
-        const sId = getSourceId(link);
-        const tId = getTargetId(link);
-        if (!activeNodeIds.has(sId) || !activeNodeIds.has(tId)) return false;
-        if (link.is_intra) return true;
-
-        const sourceSelected = selectedNodes.some((n) => n.id === sId);
-        const targetSelected = selectedNodes.some((n) => n.id === tId);
-        return sourceSelected || targetSelected;
-    });
-
-    return { nodes: activeNodes, links: activeLinks };
-}
-
-function renderForceGraph(nodes, links) {
-    if (graphLayoutMode !== "force") return;
-    const container = document.getElementById("forceGraphContainer");
-    if (!container) return;
-
-    setGraphContainerModeClass();
-    hideSomTooltip();
-    container.innerHTML = "";
-
-    if (typeof d3 === "undefined") {
-        container.innerHTML = '<div class="center-msg">D3 failed to load. Upload/analysis still works.</div>';
-        return;
-    }
-
-    if (!nodes.length) {
-        container.innerHTML = '<div class="center-msg">No nodes available for current step</div>';
-        return;
-    }
-
-    const rect = container.getBoundingClientRect();
-    const width = Math.max(600, Math.floor(rect.width));
-    const height = Math.max(240, Math.floor(rect.height));
-
-    const svg = d3.select(container)
-        .append("svg")
-        .attr("width", width)
-        .attr("height", height);
-
-    const root = svg.append("g");
-    svg.call(d3.zoom().on("zoom", (event) => root.attr("transform", event.transform)));
-
-    const linkSel = root.append("g")
-        .selectAll("line")
-        .data(links, (d) => `${getSourceId(d)}-${getTargetId(d)}`)
-        .join("line")
-        .attr("stroke", (d) => (d.is_intra ? "transparent" : "#b9c1cc"))
-        .attr("stroke-opacity", (d) => (d.is_intra ? 0 : 0.65))
-        .attr("stroke-width", (d) => (d.is_intra ? 0 : Math.max(1, Number(d.jaccard || 0) * 10)));
-
-    const nodeSel = root.append("g")
-        .selectAll("g")
-        .data(nodes, (d) => d.id)
-        .join((enter) => {
-            const g = enter.append("g").style("cursor", "pointer");
-            g.append("circle");
-            g.append("text");
-            return g;
-        })
-        .on("click", (event, d) => {
-            event.stopPropagation();
-            hideForceNodeTooltip();
-            toggleForceNodeSelection(d);
-        })
-        .on("mouseover", (event, d) => {
-            showForceNodeTooltip(event, d);
-        })
-        .on("mousemove", (event) => {
-            moveForceNodeTooltip(event);
-        })
-        .on("mouseout", () => {
-            hideForceNodeTooltip();
-        });
-
-    nodeSel.select("circle")
-        .attr("r", (d) => Math.sqrt(Number(d.val || 1)) * 2.4 + 11)
-        .attr("fill", (d) => colorForGroup(d.group_id || d.group || "unknown"))
-        .attr("stroke", (d) => (isNodeSelected(d.id) ? "#ef4444" : "#ffffff"))
-        .attr("stroke-width", (d) => (isNodeSelected(d.id) ? 4 : 2.5))
-        .attr("opacity", (d) => {
-            if (forceStep >= layerOrder.length) return isNodeSelected(d.id) ? 1 : 0.75;
-            if (d.layer !== layerOrder[forceStep]) return 0.95;
-            return isNodeSelected(d.id) ? 1 : 0.68;
-        });
-
-    nodeSel.select("text")
-        .text((d) => d.name)
-        .attr("y", (d) => Math.sqrt(Number(d.val || 1)) * 2.4 + 24)
-        .attr("text-anchor", "middle")
-        .style("font-size", "11px")
-        .style("font-weight", 600)
-        .style("fill", "#1f2937")
-        .style("pointer-events", "none");
-
-    const simulation = d3.forceSimulation(nodes)
-        .force("link", d3.forceLink(links)
-            .id((d) => d.id)
-            .distance((d) => (d.is_intra ? Math.max(35, 55 - Number(d.jaccard || 0) * 35) : 190))
-            .strength((d) => (d.is_intra ? Math.max(0.1, Number(d.jaccard || 0) * 1.8) : Math.max(0.03, Number(d.jaccard || 0) * 0.7))))
-        .force("charge", d3.forceManyBody().strength(-420))
-        .force("x", d3.forceX((d) => {
-            const idx = layerOrder.indexOf(d.layer);
-            return (idx + 1) * (width / 4);
-        }).strength(0.8))
-        .force("y", d3.forceY(height / 2).strength(0.1))
-        .force("collide", d3.forceCollide().radius((d) => Math.sqrt(Number(d.val || 1)) * 2.4 + 22));
-
-    nodeSel.call(
-        d3.drag()
-            .on("start", (event, d) => {
-                if (!event.active) simulation.alphaTarget(0.3).restart();
-                d.fx = d.x;
-                d.fy = d.y;
-            })
-            .on("drag", (event, d) => {
-                d.fx = event.x;
-                d.fy = event.y;
-            })
-            .on("end", (event, d) => {
-                if (!event.active) simulation.alphaTarget(0);
-                d.fx = null;
-                d.fy = null;
-            })
-    );
-
-    simulation.on("tick", () => {
-        linkSel
-            .attr("x1", (d) => d.source.x)
-            .attr("y1", (d) => d.source.y)
-            .attr("x2", (d) => d.target.x)
-            .attr("y2", (d) => d.target.y);
-
-        nodeSel.attr("transform", (d) => `translate(${d.x},${d.y})`);
-    });
-}
-
-function updateForceStepUI() {
-    if (graphLayoutMode !== "force") return;
-    const chips = document.querySelectorAll(".force-step-chip");
-    chips.forEach((chip, index) => {
-        chip.classList.remove("active", "done");
-        if (index < forceStep) chip.classList.add("done");
-        else if (index === forceStep) chip.classList.add("active");
-    });
-
-    const btnNext = document.getElementById("btnForceNext");
-    const btnGenerate = document.getElementById("btnForceGenerate");
-
-    if (forceStep >= layerOrder.length) {
-        if (btnNext) btnNext.style.display = "none";
-        if (btnGenerate) btnGenerate.style.display = "inline-block";
-    } else {
-        if (btnNext) btnNext.style.display = "inline-block";
-        if (btnGenerate) btnGenerate.style.display = "none";
-    }
-}
-
-function renderForceStep() {
-    if (graphLayoutMode !== "force") return;
-    updateForceStepUI();
-    const data = computeActiveGraphData();
-    renderForceGraph(data.nodes, data.links);
-}
-
-function initForceExplorer() {
-    if (!forceGraphData || !Array.isArray(forceGraphData.nodes) || !forceGraphData.nodes.length) {
-        renderGraphPlaceholder();
-        return;
-    }
-    useForceGraphAsActiveData();
-    forceStep = 0;
-    selectedNodes = [];
-    clearPaletteSelectionState();
-    renderForceStep();
-    renderDesignSummary();
-}
-
-function nextForceStep() {
-    if (graphLayoutMode === "som") return;
-    if (forceStep >= layerOrder.length) return;
-
-    const currentLayer = layerOrder[forceStep];
-    const count = selectedNodes.filter((n) => n.layer === currentLayer).length;
-    if (count === 0) {
-        alert("Please select at least one node in the current layer.");
-        return;
-    }
-
-    forceStep += 1;
-    renderForceStep();
-    renderDesignSummary();
-}
+// [FORCE-DISABLED] nextForceStep — advances the force layer step and re-renders
+// function nextForceStep() {
+//     if (graphLayoutMode === "som") return;
+//     if (forceStep >= layerOrder.length) return;
+//     const currentLayer = layerOrder[forceStep];
+//     const count = selectedNodes.filter((n) => n.layer === currentLayer).length;
+//     if (count === 0) {
+//         alert("Please select at least one node in the current layer.");
+//         return;
+//     }
+//     forceStep += 1;
+//     renderForceStep();
+//     renderDesignSummary();
+// }
 
 function resetForceFlow() {
     if (graphLayoutMode === "som") {
         resetSomFlow();
         return;
     }
-    if (!forceGraphData) return;
-    initForceExplorer();
+    // [FORCE-DISABLED] Force reset branch — initForceExplorer disabled
+    // if (!forceGraphData) return;
+    // initForceExplorer();
 }
 
 function buildSelectionMaps() {
@@ -4049,13 +4010,14 @@ async function restoreSession() {
 // ────────────────────────────────────────────────────────────────────────────
 
 function bindEvents() {
-    const btnLayoutForce = document.getElementById("btnLayoutForce");
+    // [FORCE-DISABLED] Force layout toggle button listener
+    // const btnLayoutForce = document.getElementById("btnLayoutForce");
     const btnLayoutSom = document.getElementById("btnLayoutSom");
-    if (btnLayoutForce) {
-        btnLayoutForce.addEventListener("click", () => {
-            setGraphLayoutMode("force");
-        });
-    }
+    // if (btnLayoutForce) {
+    //     btnLayoutForce.addEventListener("click", () => {
+    //         setGraphLayoutMode("force");
+    //     });
+    // }
     if (btnLayoutSom) {
         btnLayoutSom.addEventListener("click", () => {
             setGraphLayoutMode("som");
@@ -4091,7 +4053,8 @@ function bindEvents() {
     }
 
     document.getElementById("btnForceReset").addEventListener("click", resetForceFlow);
-    document.getElementById("btnForceNext").addEventListener("click", nextForceStep);
+    // [FORCE-DISABLED] btnForceNext — only used in force layer step navigation
+    // document.getElementById("btnForceNext").addEventListener("click", nextForceStep);
     document.getElementById("btnForceGenerate").addEventListener("click", generateFinalPosterFromForceGraph);
 
     document.getElementById("btnGeneratePaletteFromNode").addEventListener("click", () => {
@@ -4112,7 +4075,7 @@ function bindEvents() {
             }
             return;
         }
-        if (forceGraphData) renderForceStep();
+        // [FORCE-DISABLED] if (forceGraphData) renderForceStep();
         if (isDesignTabActive()) {
             requestAnimationFrame(() => {
                 renderDesignSankey();
