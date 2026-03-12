@@ -18,6 +18,7 @@ def handle_csv_upload(file, upload_folder):
         try:
             analyzer = SchemaAnalyzer(df)
             schema_analysis_text = analyzer.analyze()
+            print(schema_analysis_text)
         except Exception as e:
             print(f"Schema analysis failed: {e}")
 
