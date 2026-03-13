@@ -19,8 +19,8 @@ _PARENT_DIR = os.path.dirname(_THIS_DIR)
 if _PARENT_DIR not in sys.path:
     sys.path.insert(0, _PARENT_DIR)
 
-from som_module import pipeline, json_io
-from som_module import config as cfg
+from app3.som_module import pipeline, json_io
+from app3.som_module import config as cfg
 
 # ==============================================================================
 #  ★★★ 调试配置区 —— 在这里修改所有参数，然后直接运行 ★★★
@@ -30,7 +30,7 @@ from som_module import config as cfg
 # 填写 runs JSON 文件的路径（绝对路径或相对于本文件的路径）。
 # 留空 ("") 则自动使用 sample_data/sample_runs.json；
 # 若 sample_data 也不存在则使用脚本内内置的 2 条最小样本。
-INPUT_JSON_PATH = ""
+INPUT_JSON_PATH = "sample_data/merged_force_runs_50_and_som_data.json"
 # 示例：
 # INPUT_JSON_PATH = r"C:\projects\Auto-Info\static\json\som_runs_100_20260301_120000.json"
 # INPUT_JSON_PATH = os.path.join(_THIS_DIR, "sample_data", "sample_runs.json")

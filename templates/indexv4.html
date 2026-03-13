@@ -29,7 +29,18 @@
                 <div class="step-container">
                     <div class="step-label"><div class="step-dot">1</div><span>Data Source</span></div>
                     <div class="input-group">
-                        <input type="file" id="fileInput" accept=".csv">
+                        <div class="academic-upload-card">
+                            <div class="academic-upload-head">
+                                <span class="academic-upload-title">Research Dataset Input</span>
+                                <span class="academic-upload-tag">CSV</span>
+                            </div>
+                            <div class="academic-upload-body">
+                                <label for="fileInput" class="academic-upload-trigger">Select CSV File</label>
+                                <div id="fileInputName" class="academic-upload-filename">No file selected</div>
+                            </div>
+                            <div class="academic-upload-note">CSV dataset for semantic parsing and analysis.</div>
+                            <input type="file" id="fileInput" class="academic-file-input" accept=".csv">
+                        </div>
                         <button id="btnUpload">Upload Dataset</button>
                         <div id="loading-upload" class="loader">PARSING CSV</div>
                     </div>
@@ -62,13 +73,20 @@
                     <div class="step-label"><div class="step-dot">4</div><span>Infographic Build</span></div>
                     <div class="input-group">
                         <div class="random-generate-row">
-                            <div class="random-count-label">N</div>
-                            <input type="number" id="forceSampleCountInput" class="random-count-input" min="1" max="150" step="1" value="100">
+                            <div class="random-slider-head">
+                                <div class="random-count-label">JSON SAMPLE SIZE</div>
+                                <div id="forceSampleCountValue" class="random-count-value">100 JSON</div>
+                            </div>
+                            <input type="range" id="forceSampleCountInput" class="random-count-input random-count-slider" min="1" max="150" step="1" value="100">
+                            <div class="random-slider-scale">
+                                <span>1</span>
+                                <span>150</span>
+                            </div>
                             <button id="btnUseRecommendedCount" type="button" class="random-generate-btn">Use 100 (Recommended)</button>
                         </div>
-                        <button id="btnGenInfo" style="margin-top:5px; color:var(--primary); display:none;">Build Force Graph (100 JSON)</button>
-                        <input type="file" id="forceJsonInput" accept=".json,application/json" style="margin-top:8px;">
-                        <button id="btnGenInfoFromJson" style="margin-top:5px; color:#0f766e;" disabled>Build Force Graph From Uploaded JSON</button>
+                        <button id="btnGenInfo" style="margin-top:3px; color:var(--primary); display:none;">Build Force Graph (100 JSON)</button>
+                        <div class="build-mode-hint">Click build to choose: Upload JSON or Regenerate JSON.</div>
+                        <input type="file" id="forceJsonInput" class="graph-json-hidden-input" accept=".json,application/json">
                         <div id="loading-info" class="loader">GENERATING PLANS</div>
                         <div id="loading-info-json" class="loader">PARSING UPLOADED JSON</div>
                     </div>
@@ -117,7 +135,7 @@
                 -->
 
                 <div id="forceGraphContainer" class="force-graph-container">
-                    <div class="center-msg">Click "Build Force Graph (100 JSON)" to start</div>
+                    <div class="center-msg">Click "Build SOM Graph (100 JSON)" and choose Upload or Regenerate</div>
                 </div>
 
                 <div id="forceProgressPanel" class="force-progress-panel" style="display:none;">

@@ -150,7 +150,7 @@ def _cli():
         sys.exit(1)
 
     if args.from_runs:
-        from som_module import pipeline, json_io
+        from app3.som_module import pipeline, json_io
         print(f"从 runs 文件构建 SOM: {input_path}")
         raw_runs = json_io.load_runs_from_file(input_path)
         bundle = pipeline.build_som_from_runs(raw_runs)

@@ -90,6 +90,7 @@ let forceGraphProgressTimer = null;
 let forceGraphPollingInFlight = false;
 let forceGraphLastProgress = -1;
 let forceGraphPollDelayMs = 3500;
+let pendingBuildFromUploadedJsonPick = false;
 const RECOMMENDED_FORCE_SAMPLE_COUNT = 100;
 const FORCE_SAMPLE_COUNT_FALLBACK_MIN = 1;
 const FORCE_SAMPLE_COUNT_FALLBACK_MAX = 150;
@@ -174,8 +175,24 @@ function getRequestedSampleCount() {
     return clamped;
 }
 
+function syncSampleCountSliderUI(sampleCount = null) {
+    const input = document.getElementById("forceSampleCountInput");
+    if (!input) return;
+
+    const limits = getForceSampleCountLimits();
+    const value = Number.isInteger(sampleCount) ? sampleCount : getRequestedSampleCount();
+    const denominator = Math.max(1, limits.max - limits.min);
+    const progress = ((value - limits.min) / denominator) * 100;
+    input.style.setProperty("--sample-slider-progress", `${Math.max(0, Math.min(100, progress))}%`);
+
+    const valueLabel = document.getElementById("forceSampleCountValue");
+    if (valueLabel) valueLabel.textContent = `${value} JSON`;
+}
+
 function updateGraphActionLabels() {
     const sampleCount = getRequestedSampleCount();
+    syncSampleCountSliderUI(sampleCount);
+
     const buildBtn = document.getElementById("btnGenInfo");
     if (buildBtn) {
         buildBtn.textContent = graphLayoutMode === "som"
@@ -189,6 +206,16 @@ function updateGraphActionLabels() {
             ? "Build SOM Graph From Uploaded JSON"
             : "Build Force Graph From Uploaded JSON";
     }
+}
+
+function syncAcademicFileDisplay(inputId, filenameId, emptyText) {
+    const fileInput = document.getElementById(inputId);
+    const filenameEl = document.getElementById(filenameId);
+    if (!fileInput || !filenameEl) return;
+
+    const hasFile = fileInput.files && fileInput.files.length > 0;
+    filenameEl.textContent = hasFile ? fileInput.files[0].name : emptyText;
+    filenameEl.classList.toggle("has-file", Boolean(hasFile));
 }
 
 function getSomTooltipElement() {
@@ -216,9 +243,9 @@ function renderGraphPlaceholder() {
     setGraphContainerModeClass();
     const sampleCount = getRequestedSampleCount();
     if (graphLayoutMode === "som") {
-        container.innerHTML = `<div class="center-msg">Click "Build SOM Graph (${sampleCount} JSON)" to start</div>`;
+        container.innerHTML = `<div class="center-msg">Click "Build SOM Graph (${sampleCount} JSON)" and choose Upload or Regenerate</div>`;
     } else {
-        container.innerHTML = `<div class="center-msg">Click "Build Force Graph (${sampleCount} JSON)" to start</div>`;
+        container.innerHTML = `<div class="center-msg">Click "Build Force Graph (${sampleCount} JSON)" and choose Upload or Regenerate</div>`;
     }
 }
 
@@ -1911,11 +1938,61 @@ async function buildForceGraphPlan() {
     }
 }
 
+function triggerBuildFromUploadedJsonPick() {
+    const fileInput = document.getElementById("forceJsonInput");
+    if (!fileInput) {
+        alert("JSON upload input is unavailable.");
+        return;
+    }
+    pendingBuildFromUploadedJsonPick = true;
+    fileInput.value = "";
+    const onWindowFocus = () => {
+        window.removeEventListener("focus", onWindowFocus);
+        setTimeout(() => {
+            const hasJsonFile = Boolean(fileInput.files && fileInput.files.length > 0);
+            if (!hasJsonFile) {
+                pendingBuildFromUploadedJsonPick = false;
+            }
+        }, 0);
+    };
+    window.addEventListener("focus", onWindowFocus);
+    fileInput.click();
+}
+
+async function handleBuildGraphAction() {
+    const mode = graphLayoutMode === "som" ? "som" : "force";
+    const sampleCount = getRequestedSampleCount();
+    const modeLabel = getGraphModeLabel(mode);
+    const useUpload = window.confirm(
+        `${modeLabel} build mode:\nOK: Upload JSON file\nCancel: Regenerate ${sampleCount} JSON and build`
+    );
+
+    if (useUpload) {
+        triggerBuildFromUploadedJsonPick();
+        return;
+    }
+
+    pendingBuildFromUploadedJsonPick = false;
+    await buildForceGraphPlan();
+}
+
+function syncDatasetUploadState() {
+    syncAcademicFileDisplay("fileInput", "fileInputName", "No file selected");
+}
+
 function syncForceJsonUploadState() {
     const fileInput = document.getElementById("forceJsonInput");
+    if (!fileInput) return;
+
+    syncAcademicFileDisplay("forceJsonInput", "forceJsonInputName", "No file selected");
+    const hasJsonFile = Boolean(fileInput.files && fileInput.files.length > 0);
     const uploadBtn = document.getElementById("btnGenInfoFromJson");
-    if (!fileInput || !uploadBtn) return;
-    uploadBtn.disabled = !(fileInput.files && fileInput.files.length > 0);
+    if (uploadBtn) uploadBtn.disabled = !hasJsonFile;
+
+    if (pendingBuildFromUploadedJsonPick && hasJsonFile) {
+        pendingBuildFromUploadedJsonPick = false;
+        void buildForceGraphFromUploadedJson();
+    }
 }
 
 async function buildForceGraphFromUploadedJson() {
@@ -4026,9 +4103,16 @@ function bindEvents() {
 
     document.getElementById("btnUpload").addEventListener("click", uploadCsv);
     document.getElementById("btnAnalyze").addEventListener("click", runAnalysis);
-    document.getElementById("btnGenInfo").addEventListener("click", buildForceGraphPlan);
-    document.getElementById("btnGenInfoFromJson").addEventListener("click", buildForceGraphFromUploadedJson);
-    document.getElementById("forceJsonInput").addEventListener("change", syncForceJsonUploadState);
+    document.getElementById("btnGenInfo").addEventListener("click", handleBuildGraphAction);
+    const btnGenInfoFromJson = document.getElementById("btnGenInfoFromJson");
+    if (btnGenInfoFromJson) {
+        btnGenInfoFromJson.addEventListener("click", buildForceGraphFromUploadedJson);
+    }
+    document.getElementById("fileInput").addEventListener("change", syncDatasetUploadState);
+    const forceJsonInput = document.getElementById("forceJsonInput");
+    if (forceJsonInput) {
+        forceJsonInput.addEventListener("change", syncForceJsonUploadState);
+    }
     const sampleInput = document.getElementById("forceSampleCountInput");
     if (sampleInput) {
         sampleInput.addEventListener("input", () => {
@@ -4083,6 +4167,7 @@ function bindEvents() {
         }
     });
 
+    syncDatasetUploadState();
     syncForceJsonUploadState();
     updateGraphActionLabels();
 }
