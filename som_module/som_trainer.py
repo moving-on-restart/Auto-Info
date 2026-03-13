@@ -155,6 +155,47 @@ def _build_embeddings(element_list: list, run_ids: list, pagerank: dict, degree_
     return combined
 
 
+def _assign_elements_greedy(som, combined_vectors, element_list: list, grid_size: int):
+    """
+    使用贪心 BMU（最佳匹配单元）算法将元素分配到 SOM 网格节点。
+
+    与匈牙利算法不同，此方法直接将每个元素映射到其最近的网格节点，
+    不保证一对一分配——多个元素可能映射到同一节点，部分节点可能为空。
+
+    Parameters
+    ----------
+    som : MiniSom
+        已训练完毕的 MiniSom 实例。
+    combined_vectors : numpy.ndarray
+        shape = (n_elements, dim)
+    element_list : list
+        与 combined_vectors 行顺序一致的元素列表。
+    grid_size : int
+        SOM 网格边长。
+
+    Returns
+    -------
+    list
+        som_nodes 列表，每个节点格式为：
+        {"x": int, "y": int, "u_value": float, "elements": list}
+        注意：单个节点可能包含多个元素（碰撞）。
+    """
+    u_matrix = som.distance_map()
+
+    som_nodes = [
+        {"x": x, "y": y, "u_value": float(u_matrix[x][y]), "elements": []}
+        for x in range(grid_size)
+        for y in range(grid_size)
+    ]
+
+    for elem_idx, vec in enumerate(combined_vectors):
+        wx, wy = som.winner(vec)
+        grid_idx = wx * grid_size + wy
+        som_nodes[grid_idx]["elements"].append(element_list[elem_idx])
+
+    return som_nodes
+
+
 def _assign_elements_to_nodes(som, combined_vectors, element_list: list, grid_size: int):
     """
     使用匈牙利算法（线性和分配）将元素最优分配到 SOM 网格节点。
@@ -208,7 +249,8 @@ def _assign_elements_to_nodes(som, combined_vectors, element_list: list, grid_si
 # 公开 API
 # ──────────────────────────────────────────────────────────────────────────────
 
-def train_som(elements: dict, run_ids: list, pagerank: dict, degree_cent: dict) -> list:
+def train_som(elements: dict, run_ids: list, pagerank: dict, degree_cent: dict,
+              use_hungarian: bool = True) -> list:
     """
     对提取出的设计元素执行 SOM 训练，返回带有元素分配的网格节点列表。
 
@@ -229,6 +271,9 @@ def train_som(elements: dict, run_ids: list, pagerank: dict, degree_cent: dict) 
         PageRank 得分字典。
     degree_cent : dict
         度中心性字典。
+    use_hungarian : bool
+        True（默认）：使用匈牙利算法进行最优一对一分配；
+        False：使用贪心 BMU 分配（可能产生碰撞，用于对比演示）。
 
     Returns
     -------
@@ -303,6 +348,13 @@ def train_som(elements: dict, run_ids: list, pagerank: dict, degree_cent: dict) 
         print("[SOM] 训练完成。")
 
     # ── 6. 分配元素到节点 ──
-    som_nodes = _assign_elements_to_nodes(som, combined_vectors, element_list, grid_size)
+    if use_hungarian:
+        if config.VERBOSE:
+            print("[SOM] 使用匈牙利算法进行最优分配 ...")
+        som_nodes = _assign_elements_to_nodes(som, combined_vectors, element_list, grid_size)
+    else:
+        if config.VERBOSE:
+            print("[SOM] 使用贪心 BMU 分配（不使用匈牙利算法）...")
+        som_nodes = _assign_elements_greedy(som, combined_vectors, element_list, grid_size)
 
     return som_nodes

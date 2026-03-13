@@ -47,7 +47,12 @@ from . import pipeline
 from . import viz
 
 # 最常用的公开入口
-from .pipeline import build_som_from_file, build_som_from_runs, print_bundle_summary
+from .pipeline import (
+    build_som_from_file,
+    build_som_from_runs,
+    build_comparison_from_runs,
+    print_bundle_summary,
+)
 from .json_io import load_runs_from_file, normalize_runs_payload, save_som_result
 from .viz.server import launch as launch_viz
 
@@ -62,6 +67,7 @@ __all__ = [
     # 快捷函数
     "build_som_from_file",
     "build_som_from_runs",
+    "build_comparison_from_runs",
     "print_bundle_summary",
     "load_runs_from_file",
     "normalize_runs_payload",
