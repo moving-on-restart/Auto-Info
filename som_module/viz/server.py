@@ -48,6 +48,9 @@ app.config["JSON_ENSURE_ASCII"] = False
 
 # 全局存储当前 SOM bundle（在 launch() 中注入）
 _current_bundle: dict = {}
+# 对比模式：两个 bundle（有/无匈牙利算法）
+_bundle_no_hungarian: dict = {}
+_bundle_with_hungarian: dict = {}
 
 
 @app.route("/")
@@ -60,6 +63,15 @@ def index():
 def som_data():
     """返回当前 SOM bundle 的 JSON 数据。"""
     return jsonify(_current_bundle)
+
+
+@app.route("/api/comparison_data")
+def comparison_data():
+    """返回对比数据：无匈牙利算法 vs 有匈牙利算法的两个 SOM bundle。"""
+    return jsonify({
+        "no_hungarian":   _bundle_no_hungarian,
+        "with_hungarian": _bundle_with_hungarian,
+    })
 
 
 @app.route("/api/reload", methods=["POST"])
@@ -89,6 +101,7 @@ def _open_browser(port: int) -> None:
 
 def launch(
     bundle: dict,
+    bundle_no_hungarian: dict = None,
     port: int = 7860,
     open_browser: bool = True,
     block: bool = True,
@@ -99,7 +112,10 @@ def launch(
     Parameters
     ----------
     bundle : dict
-        pipeline.build_som_from_runs() 返回的 bundle 字典。
+        pipeline.build_som_from_runs() 返回的 bundle 字典（匈牙利算法版本）。
+    bundle_no_hungarian : dict, optional
+        不使用匈牙利算法的 bundle。提供后，页面将启用左右对比模式。
+        可通过 pipeline.build_comparison_from_runs() 同时生成两个 bundle。
     port : int
         监听端口，默认 7860。
     open_browser : bool
@@ -107,8 +123,13 @@ def launch(
     block : bool
         是否阻塞当前线程（True：前台运行；False：后台线程运行）。
     """
-    global _current_bundle
-    _current_bundle = bundle
+    global _current_bundle, _bundle_no_hungarian, _bundle_with_hungarian
+    _current_bundle       = bundle
+    _bundle_with_hungarian = bundle
+    if bundle_no_hungarian is not None:
+        _bundle_no_hungarian = bundle_no_hungarian
+    else:
+        _bundle_no_hungarian = {}
 
     print(f"\n[SOM Viewer] 服务器启动中 → http://localhost:{port}/")
     print("[SOM Viewer] 按 Ctrl+C 停止服务器\n")

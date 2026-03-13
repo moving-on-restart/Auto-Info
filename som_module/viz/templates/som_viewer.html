@@ -3,15 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SOM 交互式可视化调试器</title>
+  <title>SOM 可视化对比</title>
   <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
       font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-      background: #0f172a;
-      color: #e2e8f0;
+      background: #ffffff;
+      color: #1e293b;
       height: 100vh;
       display: flex;
       flex-direction: column;
@@ -22,66 +22,113 @@
     .header {
       display: flex;
       align-items: center;
-      gap: 14px;
-      padding: 10px 18px;
-      background: #1e293b;
-      border-bottom: 1px solid #334155;
+      gap: 12px;
+      padding: 10px 20px;
+      background: #ffffff;
+      border-bottom: 1px solid #e2e8f0;
       flex-shrink: 0;
     }
     .header-title {
       font-size: 15px;
       font-weight: 700;
-      letter-spacing: 0.08em;
-      color: #94a3b8;
-      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #0f172a;
     }
     .header-badge {
       font-size: 11px;
-      padding: 2px 8px;
+      padding: 2px 9px;
       border-radius: 99px;
-      background: #334155;
-      color: #94a3b8;
+      background: #f1f5f9;
+      color: #64748b;
+      border: 1px solid #e2e8f0;
     }
     .header-spacer { flex: 1; }
     .btn {
-      padding: 5px 14px;
+      padding: 5px 13px;
       border-radius: 6px;
-      border: none;
+      border: 1px solid #e2e8f0;
       cursor: pointer;
       font-size: 12px;
       font-weight: 600;
-      transition: background 0.15s, opacity 0.15s;
+      transition: background 0.15s, border-color 0.15s;
+      background: #ffffff;
+      color: #475569;
     }
+    .btn:hover { background: #f8fafc; border-color: #cbd5e1; color: #1e293b; }
     .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-    .btn-ghost {
-      background: #334155;
-      color: #94a3b8;
-    }
-    .btn-ghost:hover:not(:disabled) { background: #475569; color: #e2e8f0; }
-    .btn-primary {
-      background: #3b82f6;
-      color: #fff;
-    }
-    .btn-primary:hover:not(:disabled) { background: #2563eb; }
-    .btn-success {
-      background: #10b981;
-      color: #fff;
-    }
-    .btn-success:hover:not(:disabled) { background: #059669; }
-    .btn-danger {
-      background: #ef4444;
-      color: #fff;
-    }
 
     /* ── Main layout ── */
     .main {
       flex: 1;
       display: flex;
+      flex-direction: column;
       min-height: 0;
-      gap: 0;
     }
 
-    /* ── SOM canvas area ── */
+    /* ── Comparison view ── */
+    .comparison-view {
+      flex: 1;
+      display: flex;
+      min-height: 0;
+    }
+
+    /* ── Panel ── */
+    .panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .panel-header {
+      flex-shrink: 0;
+      padding: 10px 16px;
+      border-bottom: 1px solid #e2e8f0;
+      background: #f8fafc;
+    }
+    .panel-header.no-hungarian {
+      background: #fff7f0;
+      border-bottom-color: #fed7aa;
+    }
+    .panel-header.with-hungarian {
+      background: #f0f9ff;
+      border-bottom-color: #bae6fd;
+    }
+
+    .panel-title {
+      font-size: 13px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .panel-header.no-hungarian .panel-title { color: #c2410c; }
+    .panel-header.with-hungarian .panel-title { color: #0369a1; }
+
+    .panel-subtitle {
+      font-size: 11px;
+      color: #94a3b8;
+      margin-top: 2px;
+    }
+
+    .panel-stats {
+      display: flex;
+      gap: 14px;
+      margin-top: 7px;
+      flex-wrap: wrap;
+    }
+    .pstat {
+      font-size: 11px;
+      color: #64748b;
+    }
+    .pstat-val {
+      font-weight: 700;
+      color: #1e293b;
+    }
+    .pstat-val.warn { color: #ea580c; }
+    .pstat-val.good { color: #16a34a; }
+
+    /* ── Canvas area ── */
     .canvas-area {
       flex: 1;
       position: relative;
@@ -90,124 +137,43 @@
     }
     .canvas-area svg { display: block; width: 100%; height: 100%; }
 
-    /* ── Sidebar ── */
-    .sidebar {
-      width: 300px;
+    /* ── Vertical divider ── */
+    .v-divider {
+      width: 1px;
+      background: #e2e8f0;
       flex-shrink: 0;
-      background: #1e293b;
-      border-left: 1px solid #334155;
+    }
+
+    /* ── Legend bar ── */
+    .legend-bar {
+      flex-shrink: 0;
+      border-top: 1px solid #e2e8f0;
+      padding: 8px 20px;
       display: flex;
-      flex-direction: column;
-      overflow: hidden;
+      align-items: center;
+      gap: 16px;
+      background: #ffffff;
+      flex-wrap: wrap;
     }
-    .sidebar-section {
-      border-bottom: 1px solid #334155;
-      padding: 12px 14px;
-    }
-    .sidebar-label {
+    .legend-label {
       font-size: 10px;
       font-weight: 700;
-      letter-spacing: 0.12em;
+      letter-spacing: 0.1em;
       text-transform: uppercase;
-      color: #64748b;
-      margin-bottom: 8px;
+      color: #94a3b8;
+      flex-shrink: 0;
     }
-
-    /* ── Step chips ── */
-    .step-chips {
+    .legend-items {
       display: flex;
       flex-wrap: wrap;
-      gap: 6px;
-    }
-    .step-chip {
-      font-size: 11px;
-      padding: 3px 10px;
-      border-radius: 99px;
-      border: 1.5px solid #475569;
-      color: #94a3b8;
-      background: transparent;
-      cursor: default;
-      transition: all 0.2s;
-    }
-    .step-chip.active {
-      border-color: #3b82f6;
-      color: #93c5fd;
-      background: rgba(59, 130, 246, 0.12);
-    }
-    .step-chip.done {
-      border-color: #10b981;
-      color: #6ee7b7;
-      background: rgba(16, 185, 129, 0.1);
-    }
-
-    /* ── Selection summary ── */
-    .selection-list {
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-      max-height: 260px;
-      overflow-y: auto;
-    }
-    .selection-item {
-      display: flex;
-      align-items: flex-start;
-      gap: 8px;
-      padding: 6px 8px;
-      border-radius: 6px;
-      background: #0f172a;
-      font-size: 11px;
-    }
-    .sel-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      flex-shrink: 0;
-      margin-top: 3px;
-    }
-    .sel-info { flex: 1; min-width: 0; }
-    .sel-layer { font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.08em; }
-    .sel-name { color: #e2e8f0; font-weight: 600; word-break: break-all; }
-    .sel-desc { font-size: 10px; color: #94a3b8; margin-top: 1px; }
-    .sel-remove {
-      background: none;
-      border: none;
-      color: #ef4444;
-      cursor: pointer;
-      font-size: 14px;
-      line-height: 1;
-      padding: 0 2px;
-      opacity: 0.6;
-    }
-    .sel-remove:hover { opacity: 1; }
-    .sel-empty { font-size: 11px; color: #475569; font-style: italic; }
-
-    /* ── Stats ── */
-    .stats-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 6px;
-    }
-    .stat-box {
-      background: #0f172a;
-      border-radius: 6px;
-      padding: 8px 10px;
-    }
-    .stat-val { font-size: 22px; font-weight: 700; color: #e2e8f0; }
-    .stat-key { font-size: 10px; color: #64748b; margin-top: 1px; }
-
-    /* ── Legend ── */
-    .legend-list {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      max-height: 180px;
-      overflow-y: auto;
+      gap: 10px;
     }
     .legend-item {
       display: flex;
       align-items: center;
-      gap: 7px;
+      gap: 5px;
       font-size: 11px;
+      color: #475569;
     }
     .legend-dot {
       width: 10px;
@@ -215,69 +181,91 @@
       border-radius: 3px;
       flex-shrink: 0;
     }
-    .legend-name { color: #cbd5e1; }
-    .legend-layer { font-size: 9px; color: #64748b; margin-left: 2px; }
 
-    /* ── Bottom action bar ── */
-    .action-bar {
-      padding: 10px 14px;
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      border-top: 1px solid #334155;
-      margin-top: auto;
-    }
-
-    /* ── SOM hex styles (in white canvas) ── */
+    /* ── SOM hex styles ── */
     .hex {
-      stroke: #fff;
+      stroke: #ffffff;
       stroke-width: 1.2px;
-      cursor: pointer;
-      transition: all 0.18s;
+      cursor: default;
+      transition: stroke 0.15s, stroke-width 0.15s;
     }
-    .hex:hover { stroke: #333; stroke-width: 2.5px; }
-    .link { fill: none; stroke-linecap: round; }
-    .dimmed { opacity: 0.13; filter: grayscale(100%); pointer-events: none; }
-    .highlight { opacity: 1; filter: none; }
-    .highlight .hex { stroke: #f1c40f; stroke-width: 2.8px; }
-    .selected-node { filter: drop-shadow(0 0 8px rgba(0,0,0,0.7)); }
-    .selected-node .hex { stroke: #ef4444; stroke-width: 1.8px; }
+    .hex-group:hover .hex {
+      stroke: #334155;
+      stroke-width: 2px;
+    }
 
     /* ── Tooltip ── */
     .som-tooltip {
-      position: absolute;
+      position: fixed;
       text-align: left;
-      padding: 11px 13px;
-      font-size: 12.5px;
-      background: rgba(255, 255, 255, 0.97);
-      border: 1px solid #cbd5e1;
+      padding: 10px 13px;
+      font-size: 12px;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
       border-radius: 8px;
       pointer-events: none;
       visibility: hidden;
-      box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.10);
       z-index: 9999;
-      max-width: 280px;
-      line-height: 1.5;
+      max-width: 260px;
+      line-height: 1.55;
       color: #1e293b;
+    }
+    .tt-badge {
+      display: inline-block;
+      font-size: 10px;
+      padding: 1px 7px;
+      border-radius: 99px;
+      color: #fff;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .tt-name {
+      font-weight: 700;
+      font-size: 13px;
+      color: #0f172a;
+    }
+    .tt-desc {
+      font-size: 11px;
+      color: #64748b;
+      margin-top: 3px;
+    }
+    .tt-meta {
+      font-size: 10px;
+      color: #94a3b8;
+      margin-top: 4px;
+      border-top: 1px solid #f1f5f9;
+      padding-top: 4px;
+    }
+    .tt-collision {
+      font-size: 11px;
+      color: #ea580c;
+      font-weight: 700;
+      margin-top: 4px;
+    }
+    .tt-collision-list {
+      font-size: 11px;
+      color: #64748b;
+      margin-top: 3px;
     }
 
     /* ── Loading overlay ── */
-    #loadingOverlay {
+    .loading-overlay {
       position: absolute;
       inset: 0;
-      background: rgba(255,255,255,0.92);
+      background: rgba(255,255,255,0.95);
       display: flex;
       align-items: center;
       justify-content: center;
       flex-direction: column;
-      gap: 12px;
-      font-size: 14px;
-      color: #64748b;
+      gap: 10px;
+      font-size: 13px;
+      color: #94a3b8;
       z-index: 100;
     }
     .spinner {
-      width: 36px;
-      height: 36px;
+      width: 32px;
+      height: 32px;
       border: 3px solid #e2e8f0;
       border-top-color: #3b82f6;
       border-radius: 50%;
@@ -285,98 +273,107 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* ── Notification toast ── */
+    /* ── Empty state ── */
+    .empty-state {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 8px;
+      color: #94a3b8;
+      font-size: 13px;
+      pointer-events: none;
+    }
+
+    /* ── Toast ── */
     #toast {
       position: fixed;
-      bottom: 24px;
+      bottom: 20px;
       left: 50%;
-      transform: translateX(-50%) translateY(20px);
+      transform: translateX(-50%) translateY(12px);
       background: #1e293b;
-      color: #e2e8f0;
-      padding: 9px 20px;
+      color: #f8fafc;
+      padding: 8px 18px;
       border-radius: 8px;
-      font-size: 13px;
-      box-shadow: 0 4px 18px rgba(0,0,0,0.3);
+      font-size: 12px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.18);
       opacity: 0;
-      transition: opacity 0.25s, transform 0.25s;
+      transition: opacity 0.22s, transform 0.22s;
       z-index: 99999;
       pointer-events: none;
     }
     #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
     /* ── Scrollbar ── */
-    ::-webkit-scrollbar { width: 5px; }
-    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
   </style>
 </head>
 <body>
 
-<!-- ── Header ─────────────────────────────────────────────── -->
+<!-- ── Header ──────────────────────────────────────────── -->
 <div class="header">
-  <span class="header-title">SOM 交互式可视化调试器</span>
+  <span class="header-title">SOM 可视化对比</span>
   <span class="header-badge" id="hdrBadge">载入中…</span>
   <div class="header-spacer"></div>
-  <button class="btn btn-ghost" id="btnReload" title="重新从服务器拉取数据">⟳ 刷新</button>
-  <button class="btn btn-ghost" id="btnReset">↺ 重置选择</button>
-  <button class="btn btn-success" id="btnExport" style="display:none">⬇ 导出选择 JSON</button>
+  <button class="btn" id="btnReload" title="重新从服务器拉取数据">⟳ 刷新</button>
 </div>
 
-<!-- ── Main ──────────────────────────────────────────────── -->
+<!-- ── Main ─────────────────────────────────────────────── -->
 <div class="main">
+  <div class="comparison-view">
 
-  <!-- SOM Canvas -->
-  <div class="canvas-area" id="canvasArea">
-    <div id="loadingOverlay">
-      <div class="spinner"></div>
-      <span>正在加载 SOM 数据…</span>
-    </div>
-    <!-- SVG injected by JS -->
-    <div class="som-tooltip" id="somTooltip"></div>
-  </div>
-
-  <!-- Sidebar -->
-  <div class="sidebar">
-
-    <!-- Step progress -->
-    <div class="sidebar-section">
-      <div class="sidebar-label">选择进度</div>
-      <div class="step-chips" id="stepChips"></div>
-    </div>
-
-    <!-- Stats -->
-    <div class="sidebar-section">
-      <div class="sidebar-label">图谱统计</div>
-      <div class="stats-grid">
-        <div class="stat-box"><div class="stat-val" id="statNodes">—</div><div class="stat-key">非空节点</div></div>
-        <div class="stat-box"><div class="stat-val" id="statLinks">—</div><div class="stat-key">跨层链接</div></div>
-        <div class="stat-box"><div class="stat-val" id="statElems">—</div><div class="stat-key">设计元素</div></div>
-        <div class="stat-box"><div class="stat-val" id="statRuns">—</div><div class="stat-key">Run 样本数</div></div>
+    <!-- Left panel: no Hungarian -->
+    <div class="panel" id="panelLeft">
+      <div class="panel-header no-hungarian">
+        <div class="panel-title">
+          <span>⚠</span> 无匈牙利算法优化
+        </div>
+        <div class="panel-subtitle">贪心 BMU 分配 · 元素可重叠至同一节点</div>
+        <div class="panel-stats" id="statsLeft"></div>
+      </div>
+      <div class="canvas-area" id="canvasLeft">
+        <div class="loading-overlay" id="loadingLeft">
+          <div class="spinner"></div>
+          <span>正在加载…</span>
+        </div>
       </div>
     </div>
 
-    <!-- Legend -->
-    <div class="sidebar-section">
-      <div class="sidebar-label">类别图例</div>
-      <div class="legend-list" id="legendList"></div>
-    </div>
+    <div class="v-divider"></div>
 
-    <!-- Selection summary -->
-    <div class="sidebar-section" style="flex:1; min-height:0; overflow:hidden; display:flex; flex-direction:column;">
-      <div class="sidebar-label">已选设计方案</div>
-      <div class="selection-list" id="selectionList">
-        <div class="sel-empty">尚未选择任何节点</div>
+    <!-- Right panel: with Hungarian -->
+    <div class="panel" id="panelRight">
+      <div class="panel-header with-hungarian">
+        <div class="panel-title">
+          <span>✓</span> 匈牙利算法优化
+        </div>
+        <div class="panel-subtitle">最优全局分配 · 每元素独占一格</div>
+        <div class="panel-stats" id="statsRight"></div>
+      </div>
+      <div class="canvas-area" id="canvasRight">
+        <div class="loading-overlay" id="loadingRight">
+          <div class="spinner"></div>
+          <span>正在加载…</span>
+        </div>
       </div>
     </div>
 
-    <!-- Action bar -->
-    <div class="action-bar">
-      <button class="btn btn-primary" id="btnNextLayer" style="display:none">下一层 →</button>
-      <button class="btn btn-success" id="btnFinish" style="display:none">✓ 完成装配</button>
-      <button class="btn btn-ghost" id="btnPrevLayer" style="display:none">← 上一层</button>
-    </div>
   </div>
 
+  <!-- Legend bar -->
+  <div class="legend-bar" id="legendBar">
+    <span class="legend-label">类别图例</span>
+    <div class="legend-items" id="legendItems">
+      <span style="font-size:11px;color:#94a3b8">载入中…</span>
+    </div>
+  </div>
 </div>
+
+<!-- Shared tooltip -->
+<div class="som-tooltip" id="somTooltip"></div>
 
 <!-- Toast -->
 <div id="toast"></div>
@@ -385,44 +382,57 @@
 // ════════════════════════════════════════════════════════════
 //  Constants & palette
 // ════════════════════════════════════════════════════════════
-const HEX_SIZE   = 14;
-const HEX_W      = Math.sqrt(3) * HEX_SIZE;
-const HEX_H      = 2 * HEX_SIZE;
-const EMPTY_CLR  = "#f4f6f9";
+const HEX_SIZE  = 14;
+const HEX_W     = Math.sqrt(3) * HEX_SIZE;
+const HEX_H     = 2 * HEX_SIZE;
+const EMPTY_CLR = "#f1f5f9";
 
 const COLOR_PALETTES = [
-  { scale: d3.interpolateGreens,  hex: "#27ae60" },
-  { scale: d3.interpolateTeals,   hex: "#16a085" },
-  { scale: d3.interpolateBlues,   hex: "#2980b9" },
-  { scale: d3.interpolatePurples, hex: "#8e44ad" },
-  { scale: d3.interpolateReds,    hex: "#c0392b" },
-  { scale: d3.interpolateOranges, hex: "#d35400" },
-  { scale: d3.interpolateYlOrBr,  hex: "#b8860b" },
-  { scale: d3.interpolateCool,    hex: "#00b894" },
-  { scale: d3.interpolateWarm,    hex: "#d63031" },
-  { scale: d3.interpolateCividis, hex: "#2c3e50" },
+  { scale: d3.interpolateGreens,  hex: "#16a34a" },
+  { scale: d3.interpolateBlues,   hex: "#2563eb" },
+  { scale: d3.interpolatePurples, hex: "#7c3aed" },
+  { scale: d3.interpolateOranges, hex: "#ea580c" },
+  { scale: d3.interpolateReds,    hex: "#dc2626" },
+  { scale: d3.interpolateTeals,   hex: "#0d9488" },
+  { scale: d3.interpolateYlOrBr,  hex: "#a16207" },
+  { scale: d3.interpolateCool,    hex: "#0891b2" },
+  { scale: d3.interpolateWarm,    hex: "#c2410c" },
+  { scale: d3.interpolateCividis, hex: "#475569" },
 ];
 
-const LAYER_PRIORITY = {
-  bottom_layer: 1, middle_layer: 2, top_layer: 3, title_layer: 4, title_scheme: 4
-};
+// ════════════════════════════════════════════════════════════
+//  Shared color scheme (same category → same color in both panels)
+// ════════════════════════════════════════════════════════════
+let catColorScales = {};
+let badgeColors    = {};
 
-// ════════════════════════════════════════════════════════════
-//  State
-// ════════════════════════════════════════════════════════════
-let bundle          = null;   // raw bundle from /api/som_data
-let selData         = null;   // processed cells/links
-let phases          = [];     // ordered layers
-let requirements    = {};     // {layer: [category,...]}
-let selections      = {};     // {layer: {category: elem}}
-let step            = 0;
-let catColorScales  = {};
-let badgeColors     = {};
-let layerColors     = {};
-let activeDegree    = {};
-let linkLookup      = {};
-let nodeByElemId    = {};
-let thicknessScale  = null;
+function buildSharedColors(bundle1, bundle2) {
+  catColorScales = {};
+  badgeColors    = {};
+  let catCount   = 0;
+  const seen     = new Set();
+
+  const collect = (bundle) => {
+    const nodes = bundle?.graph_data?.nodes || [];
+    nodes.forEach(cell => {
+      const elems = (Array.isArray(cell.elements) ? cell.elements : [])
+        .map(normElem).filter(Boolean);
+      if (elems.length > 0) {
+        const cat = elems[0].category;
+        if (!seen.has(cat)) {
+          const cp = COLOR_PALETTES[catCount % COLOR_PALETTES.length];
+          catColorScales[cat] = cp.scale;
+          badgeColors[cat]    = cp.hex;
+          seen.add(cat);
+          catCount++;
+        }
+      }
+    });
+  };
+
+  collect(bundle1);
+  collect(bundle2);
+}
 
 // ════════════════════════════════════════════════════════════
 //  Helpers
@@ -433,7 +443,7 @@ function esc(s) {
     .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
 }
 
-function toast(msg, ms = 2500) {
+function toast(msg, ms = 2200) {
   const el = document.getElementById("toast");
   el.textContent = msg;
   el.classList.add("show");
@@ -456,497 +466,284 @@ function normElem(raw) {
     id,
     name:     String(raw.name  || raw.label || id).trim(),
     label:    String(raw.label || raw.name  || id).trim(),
-    group:    String(raw.group || raw.category || gid).trim(),
-    group_id: gid,
     category: String(raw.category || raw.group || gid).trim(),
     layer:    String(raw.layer || "top_layer").trim(),
     desc:     String(raw.desc  || "").trim(),
-    val:      Number(raw.val  ?? raw.count ?? 1) || 1,
-    count:    Number(raw.count ?? raw.val  ?? 1) || 1,
-    option_payload: (raw.option_payload && typeof raw.option_payload === "object") ? raw.option_payload : {},
-    is_palette_node: Boolean(raw.is_palette_node || gid === "color_scheme"),
+    count:    Number(raw.count ?? raw.val ?? 1) || 1,
   };
-}
-
-function currentLayer() {
-  if (!phases.length) return null;
-  return phases[Math.min(step, phases.length - 1)];
-}
-
-function linkBetween(a, b) {
-  const key = [String(a||""), String(b||"")].sort().join("||");
-  return linkLookup[key] || null;
 }
 
 function nodeColor(elements) {
   if (!elements || !elements.length) return EMPTY_CLR;
-  const e = elements[0];
+  const e    = elements[0];
   const interp = catColorScales[e.category] || d3.interpolateGreys;
-  const mx = Number(selData?.maxCount || 1);
-  const n  = 0.3 + 0.7 * (Number(e.count || 1) / mx);
-  return interp(n);
+  return interp(0.55 + 0.35 * Math.min(1, (e.count - 1) / 10));
 }
 
 // ════════════════════════════════════════════════════════════
-//  Data preparation
+//  Data preparation per bundle
 // ════════════════════════════════════════════════════════════
-function prepareData() {
+function prepareBundle(bundle) {
   const nodes = bundle?.graph_data?.nodes || [];
-  const links = bundle?.graph_data?.links || [];
-
-  nodeByElemId  = {}; linkLookup = {};
-  catColorScales= {}; badgeColors= {}; layerColors= {};
-  activeDegree  = {}; requirements= {};
-
-  const catSeen = new Set();
-  let catCount  = 0;
-  const layerSet= new Set();
-  let maxCount  = 1, maxLift = 1;
+  let maxCount = 1;
 
   const cells = nodes.map(cell => {
     const elems = (Array.isArray(cell.elements) ? cell.elements : [])
       .map(normElem).filter(Boolean);
-    const cx = (Number(cell.x||0) + (Number(cell.y||0) % 2 === 0 ? 0 : 0.5)) * HEX_W;
-    const cy =  Number(cell.y||0) * (HEX_H * 0.75);
-    const nc  = { x: cell.x, y: cell.y, u_value: cell.u_value, elements: elems, cx, cy };
-
-    if (elems.length > 0) {
-      const e = elems[0];
-      nodeByElemId[e.id] = nc;
-      layerSet.add(e.layer);
-      if (!requirements[e.layer]) requirements[e.layer] = new Set();
-      requirements[e.layer].add(e.category);
-
-      if (!catSeen.has(e.category)) {
-        const cp = COLOR_PALETTES[catCount % COLOR_PALETTES.length];
-        catColorScales[e.category] = cp.scale;
-        badgeColors[e.category]    = cp.hex;
-        catSeen.add(e.category);
-        catCount++;
-      }
-      maxCount = Math.max(maxCount, Number(e.count || 1));
-    }
-    return nc;
+    const cx = (Number(cell.x || 0) + (Number(cell.y || 0) % 2 === 0 ? 0 : 0.5)) * HEX_W;
+    const cy =  Number(cell.y || 0) * (HEX_H * 0.75);
+    elems.forEach(e => { maxCount = Math.max(maxCount, e.count); });
+    return { x: cell.x, y: cell.y, u_value: cell.u_value, elements: elems, cx, cy };
   });
 
-  phases = Array.from(layerSet).sort((a, b) =>
-    (LAYER_PRIORITY[a] || 99) - (LAYER_PRIORITY[b] || 99)
-  );
-  phases.forEach((layer, i) => {
-    layerColors[layer]  = COLOR_PALETTES[i % COLOR_PALETTES.length].hex;
-    requirements[layer] = Array.from(requirements[layer] || []);
-  });
-
-  links.forEach(lk => {
-    const s = String(lk.source||""), t = String(lk.target||"");
-    if (!s || !t) return;
-    const key = [s, t].sort().join("||");
-    linkLookup[key] = { source: s, target: t, lift: Number(lk.lift||0), co_occur: Number(lk.co_occur||0) };
-    maxLift = Math.max(maxLift, Number(lk.lift||0));
-  });
-
-  thicknessScale = d3.scaleLinear().domain([0, maxLift||1]).range([1.5, 4.5]).clamp(true);
-  selData = { cells, links, maxCount };
-}
-
-function initSelections() {
-  selections = {};
-  phases.forEach(l => { selections[l] = {}; });
-  step = 0;
+  return { cells, maxCount };
 }
 
 // ════════════════════════════════════════════════════════════
-//  Render
+//  Stats computation
 // ════════════════════════════════════════════════════════════
-function render() {
-  renderSOM();
-  renderSidebar();
+function computeStats(data) {
+  const cells       = data?.cells || [];
+  const nonEmpty    = cells.filter(c => c.elements.length > 0);
+  const collisions  = nonEmpty.filter(c => c.elements.length > 1);
+  const totalElems  = nonEmpty.reduce((s, c) => s + c.elements.length, 0);
+  const maxOverlap  = nonEmpty.reduce((m, c) => Math.max(m, c.elements.length), 1);
+  return { nonEmpty: nonEmpty.length, collisions: collisions.length, totalElems, maxOverlap };
 }
 
-function renderSOM() {
-  const container = document.getElementById("canvasArea");
-  // Remove previous SVG (keep tooltip & overlay)
+function renderStats(containerId, stats, showCollisionWarning) {
+  const el = document.getElementById(containerId);
+  const collisionHtml = showCollisionWarning
+    ? `<span class="pstat"><span class="pstat-val warn">${stats.collisions}</span> 节点碰撞</span>
+       <span class="pstat"><span class="pstat-val warn">${stats.maxOverlap}</span> 最大重叠</span>`
+    : `<span class="pstat"><span class="pstat-val good">0</span> 碰撞</span>`;
+  el.innerHTML = `
+    <span class="pstat"><span class="pstat-val">${stats.nonEmpty}</span> 非空节点</span>
+    <span class="pstat"><span class="pstat-val">${stats.totalElems}</span> 元素</span>
+    ${collisionHtml}`;
+}
+
+// ════════════════════════════════════════════════════════════
+//  Legend rendering
+// ════════════════════════════════════════════════════════════
+function renderLegend() {
+  const el   = document.getElementById("legendItems");
+  const cats = Object.keys(badgeColors);
+  if (!cats.length) { el.innerHTML = '<span style="font-size:11px;color:#94a3b8">暂无类别</span>'; return; }
+  el.innerHTML = cats.map(cat => `
+    <div class="legend-item">
+      <div class="legend-dot" style="background:${badgeColors[cat]}"></div>
+      <span>${esc(cat)}</span>
+    </div>`).join("");
+}
+
+// ════════════════════════════════════════════════════════════
+//  SOM panel renderer
+// ════════════════════════════════════════════════════════════
+function renderSOMPanel(canvasId, data, showCollisionBadges) {
+  const container = document.getElementById(canvasId);
   container.querySelectorAll("svg").forEach(el => el.remove());
 
-  if (!selData || !selData.cells.length) return;
+  if (!data || !data.cells.length) {
+    const div = document.createElement("div");
+    div.className = "empty-state";
+    div.textContent = "暂无数据";
+    container.appendChild(div);
+    return;
+  }
 
   const tooltip = document.getElementById("somTooltip");
-  const cells   = selData.cells;
-  const cur     = currentLayer();
-  activeDegree  = {};
+  const cells   = data.cells;
 
   const svgRoot = d3.select(container).append("svg")
     .attr("width","100%").attr("height","100%");
 
   const zoomRoot = svgRoot.append("g");
-  const zoomBeh  = d3.zoom().scaleExtent([0.3, 8])
+  const zoomBeh  = d3.zoom().scaleExtent([0.2, 10])
     .on("zoom", ev => zoomRoot.attr("transform", ev.transform));
   svgRoot.call(zoomBeh);
 
-  const linkLayer = zoomRoot.append("g").attr("class","links-layer").style("pointer-events","none");
-  const hexLayer  = zoomRoot.append("g").attr("class","hex-layer");
+  const hexLayer = zoomRoot.append("g").attr("class","hex-layer");
 
-  // ── Build active links ──
-  const activeLinks = [];
-  if (step > 0 && step <= phases.length) {
-    let prev = [];
-    for (let i = 0; i < step; i++) {
-      prev = prev.concat(Object.values(selections[phases[i]] || {}));
-    }
-    cells.forEach(cell => {
-      if (!cell.elements.length) return;
-      const e = cell.elements[0];
-      if (e.layer !== cur) return;
-      prev.forEach(srcElem => {
-        const lk = linkBetween(srcElem.id, e.id);
-        if (!lk) return;
-        const srcCell = nodeByElemId[srcElem.id];
-        if (!srcCell) return;
-        activeLinks.push({ id: `${srcElem.id}-${e.id}`, source: srcCell, target: cell,
-          lift: Number(lk.lift||0), category: e.category });
-        activeDegree[srcElem.id] = (activeDegree[srcElem.id]||0) + 1;
-        activeDegree[e.id]       = (activeDegree[e.id]||0) + 1;
-      });
-    });
-  }
-
-  // ── Render links ──
-  linkLayer.selectAll(".active-link").data(activeLinks, d => d.id)
-    .enter().append("path").attr("class","active-link link")
-    .attr("stroke", d => badgeColors[d.category] || "#64748b")
-    .attr("stroke-width", d => thicknessScale ? thicknessScale(d.lift) : 1.5)
-    .attr("stroke-opacity", 0.5)
-    .attr("d", d =>
-      `M ${d.source.cx} ${d.source.cy} ` +
-      `Q ${(d.source.cx+d.target.cx)/2} ${(d.source.cy+d.target.cy)/2 - 50} ` +
-      `${d.target.cx} ${d.target.cy}`
-    );
-
-  // ── Render hex groups ──
+  // ── Hex groups ──
   const hexGroups = hexLayer.selectAll(".hex-group")
     .data(cells).enter().append("g")
-    .attr("class", d => {
-      const cls = ["hex-group"];
-      if (!d.elements.length) { cls.push("dimmed"); return cls.join(" "); }
-      const e = d.elements[0];
-      const sel = selections[e.layer] || {};
-      const isSel = sel[e.category]?.id === e.id;
-      if (isSel) cls.push("selected-node");
-      if (e.layer !== cur && !isSel) cls.push("dimmed");
-      if ((activeDegree[e.id]||0) > 0 && !isSel && e.layer === cur) cls.push("highlight");
-      return cls.join(" ");
-    })
+    .attr("class","hex-group")
     .attr("transform", d => `translate(${d.cx},${d.cy})`)
     .on("mouseover", function(event, d) {
       if (!d.elements.length) return;
-      const e = d.elements[0];
-      const deg = activeDegree[e.id] || 0;
-      const isCur = e.layer === cur;
-      tooltip.innerHTML = `
-        <div style="${!isCur ? "opacity:0.5;" : ""}">
-          <b style="color:${badgeColors[e.category]||'#2c3e50'}">[${esc(e.category)}]</b>&nbsp;
-          <span style="font-weight:600">${esc(e.name)}</span>
-          <span style="font-size:11px;color:#c0392b;font-weight:700;float:right;margin-left:8px">频次: ${esc(e.count)}</span>
-          ${e.desc ? `<br><span style="font-size:11px;color:#555;display:block;margin-top:5px">${esc(e.desc)}</span>` : ""}
-          ${deg > 0 ? `<span style="font-size:11px;color:#2980b9;display:block;margin-top:5px;font-weight:700">跨层连线: ${deg}</span>` : ""}
-          <span style="font-size:10px;color:#94a3b8;display:block;margin-top:4px">层级: ${esc(e.layer)}</span>
-        </div>`;
-      tooltip.style.visibility = "visible";
-      const r = container.getBoundingClientRect();
-      tooltip.style.left = `${event.clientX - r.left + 15}px`;
-      tooltip.style.top  = `${event.clientY - r.top  + 15}px`;
+      const e    = d.elements[0];
+      const cat  = e.category;
+      const col  = badgeColors[cat] || "#475569";
 
-      if (deg > 0) {
-        linkLayer.selectAll(".active-link")
-          .transition().duration(180)
-          .attr("stroke-opacity", lk => {
-            const s = lk?.source?.elements?.[0]?.id, t = lk?.target?.elements?.[0]?.id;
-            return (s === e.id || t === e.id) ? 1 : 0.05;
-          })
-          .attr("stroke-width", lk => {
-            const bw = thicknessScale ? thicknessScale(Number(lk.lift||0)) : 1.5;
-            const s = lk?.source?.elements?.[0]?.id, t = lk?.target?.elements?.[0]?.id;
-            return (s === e.id || t === e.id) ? bw * 1.8 : bw;
-          });
+      let extraHtml = "";
+      if (showCollisionBadges && d.elements.length > 1) {
+        const others = d.elements.slice(1).map(x =>
+          `<div>· ${esc(x.name)} <span style="color:#94a3b8">(${esc(x.category)})</span></div>`
+        ).join("");
+        extraHtml = `
+          <div class="tt-collision">⚠ 节点碰撞：共 ${d.elements.length} 个元素</div>
+          <div class="tt-collision-list">${others}</div>`;
       }
+
+      tooltip.innerHTML = `
+        <div class="tt-badge" style="background:${col}">${esc(cat)}</div>
+        <div class="tt-name">${esc(e.name)}</div>
+        ${e.desc ? `<div class="tt-desc">${esc(e.desc)}</div>` : ""}
+        <div class="tt-meta">层级: ${esc(e.layer)} · 频次: ${esc(e.count)}</div>
+        ${extraHtml}`;
+      tooltip.style.visibility = "visible";
+      positionTooltip(event);
     })
     .on("mousemove", function(event) {
       if (tooltip.style.visibility !== "visible") return;
-      const r = container.getBoundingClientRect();
-      tooltip.style.left = `${event.clientX - r.left + 15}px`;
-      tooltip.style.top  = `${event.clientY - r.top  + 15}px`;
+      positionTooltip(event);
     })
     .on("mouseout", function() {
       tooltip.style.visibility = "hidden";
-      linkLayer.selectAll(".active-link").transition().duration(180)
-        .attr("stroke-opacity", 0.5)
-        .attr("stroke-width", d => thicknessScale ? thicknessScale(Number(d.lift||0)) : 1.5);
-    })
-    .on("click", function(_, d) {
-      if (!d.elements.length) return;
-      const e = d.elements[0];
-      if (!cur || e.layer !== cur) return;
-
-      if (!selections[cur]) selections[cur] = {};
-      selections[cur][e.category] = e;
-      tooltip.style.visibility = "hidden";
-
-      const req = requirements[cur] || [];
-      const got = Object.keys(selections[cur] || {});
-      if (req.length > 0 && req.every(c => got.includes(c))) {
-        if (step < phases.length - 1) {
-          step++;
-          toast(`已完成「${cur}」，进入下一层`);
-        } else if (step === phases.length - 1) {
-          step = phases.length;
-          toast("🎉 全层级装配完成！", 3500);
-        }
-      }
-      render();
     });
 
-  hexGroups.append("polygon").attr("class","hex")
+  // ── Hex polygon ──
+  hexGroups.append("polygon")
+    .attr("class","hex")
     .attr("points", hexPoints(HEX_SIZE))
     .attr("fill", d => nodeColor(d.elements))
-    .attr("opacity", d => d.elements.length === 0 ? 0.5 : 1);
+    .attr("opacity", d => d.elements.length === 0 ? 0.4 : 1);
 
-  hexGroups.append("circle").attr("class","contact-dot")
-    .attr("cx",0).attr("cy",0).attr("r",0)
-    .attr("fill","#fff").attr("stroke","#1e293b").attr("stroke-width",1.5)
-    .attr("opacity",0).style("pointer-events","none");
+  // ── Collision badge (only for no-Hungarian panel) ──
+  if (showCollisionBadges) {
+    hexGroups.filter(d => d.elements.length > 1)
+      .append("circle")
+      .attr("cx", HEX_SIZE * 0.55)
+      .attr("cy", -HEX_SIZE * 0.55)
+      .attr("r", 5.5)
+      .attr("fill", "#ea580c")
+      .attr("stroke", "#ffffff")
+      .attr("stroke-width", 1.5)
+      .style("pointer-events","none");
 
-  hexGroups.select(".contact-dot").transition().duration(280)
-    .attr("r", d => {
-      if (!d.elements.length) return 0;
-      const e = d.elements[0];
-      if (e.layer !== cur) return 0;
-      const deg = activeDegree[e.id] || 0;
-      return deg > 0 ? 2 + deg * 2 : 0;
-    })
-    .attr("opacity", d => {
-      if (!d.elements.length) return 0;
-      const e = d.elements[0];
-      if (e.layer !== cur) return 0;
-      return (activeDegree[e.id] || 0) > 0 ? 1 : 0;
-    });
+    hexGroups.filter(d => d.elements.length > 1)
+      .append("text")
+      .attr("x", HEX_SIZE * 0.55)
+      .attr("y", -HEX_SIZE * 0.55 + 0.5)
+      .attr("text-anchor","middle")
+      .attr("dominant-baseline","middle")
+      .attr("font-size","6.5px")
+      .attr("fill","#ffffff")
+      .attr("font-weight","700")
+      .style("pointer-events","none")
+      .text(d => d.elements.length);
+  }
 
   // ── Auto-fit ──
   const rect = container.getBoundingClientRect();
-  const vw = Math.max(1, rect.width), vh = Math.max(1, rect.height);
+  const vw   = Math.max(1, rect.width);
+  const vh   = Math.max(1, rect.height);
   let [mnX, mxX, mnY, mxY] = [Infinity, -Infinity, Infinity, -Infinity];
   cells.forEach(c => {
     mnX = Math.min(mnX, c.cx - HEX_SIZE); mxX = Math.max(mxX, c.cx + HEX_SIZE);
     mnY = Math.min(mnY, c.cy - HEX_SIZE); mxY = Math.max(mxY, c.cy + HEX_SIZE);
   });
-  const cw = Math.max(1, mxX - mnX), ch = Math.max(1, mxY - mnY);
-  const sc = Math.max(0.3, Math.min(8, Math.min((vw-48)/cw, (vh-48)/ch)));
-  const tx = ((vw - cw*sc)/2) - mnX*sc;
-  const ty = ((vh - ch*sc)/2) - mnY*sc;
+  const cw = Math.max(1, mxX - mnX);
+  const ch = Math.max(1, mxY - mnY);
+  const sc = Math.max(0.2, Math.min(10, Math.min((vw - 40)/cw, (vh - 40)/ch)));
+  const tx = ((vw - cw * sc) / 2) - mnX * sc;
+  const ty = ((vh - ch * sc) / 2) - mnY * sc;
   svgRoot.call(zoomBeh.transform, d3.zoomIdentity.translate(tx, ty).scale(sc));
 }
 
-// ════════════════════════════════════════════════════════════
-//  Sidebar
-// ════════════════════════════════════════════════════════════
-function renderSidebar() {
-  renderStepChips();
-  renderStats();
-  renderLegend();
-  renderSelectionList();
-  renderActionButtons();
-}
-
-function renderStepChips() {
-  const el = document.getElementById("stepChips");
-  el.innerHTML = phases.map((layer, i) => {
-    let cls = "step-chip";
-    if (i < step) cls += " done";
-    else if (i === step) cls += " active";
-    const label = layer.replace(/_layer$/,"").replace(/_/g," ");
-    return `<span class="${cls}" style="border-color:${layerColors[layer] || '#475569'}">
-      ${label} ${i < step ? "✓" : ""}
-    </span>`;
-  }).join("") || '<span style="font-size:11px;color:#475569">暂无层级</span>';
-}
-
-function renderStats() {
-  const g = bundle?.graph_data || {};
-  const nodes = (g.nodes || []).filter(n => n.elements && n.elements.length > 0);
-  const totalElems = nodes.reduce((s, n) => s + n.elements.length, 0);
-  document.getElementById("statNodes").textContent = nodes.length;
-  document.getElementById("statLinks").textContent = (g.links || []).length;
-  document.getElementById("statElems").textContent = totalElems;
-  document.getElementById("statRuns").textContent  = bundle?.success_count ?? "—";
-}
-
-function renderLegend() {
-  const el = document.getElementById("legendList");
-  const cats = Object.keys(badgeColors);
-  if (!cats.length) { el.innerHTML = '<div style="font-size:11px;color:#475569">暂无类别</div>'; return; }
-  // Group by layer
-  const catLayer = {};
-  (selData?.cells||[]).forEach(cell => {
-    if (cell.elements.length > 0) {
-      const e = cell.elements[0];
-      catLayer[e.category] = e.layer;
-    }
-  });
-  el.innerHTML = cats.map(cat => {
-    const layer = (catLayer[cat] || "").replace(/_layer$/,"").replace(/_/g," ");
-    return `<div class="legend-item">
-      <div class="legend-dot" style="background:${badgeColors[cat]}"></div>
-      <span class="legend-name">${esc(cat)}</span>
-      <span class="legend-layer">${esc(layer)}</span>
-    </div>`;
-  }).join("");
-}
-
-function renderSelectionList() {
-  const el = document.getElementById("selectionList");
-  const allSel = [];
-  phases.forEach(layer => {
-    Object.values(selections[layer] || {}).forEach(e => {
-      if (e) allSel.push({ layer, elem: e });
-    });
-  });
-  if (!allSel.length) {
-    el.innerHTML = '<div class="sel-empty">尚未选择任何节点</div>';
-    return;
-  }
-  el.innerHTML = allSel.map(({ layer, elem: e }) => `
-    <div class="selection-item">
-      <div class="sel-dot" style="background:${badgeColors[e.category]||'#64748b'}"></div>
-      <div class="sel-info">
-        <div class="sel-layer">${esc(layer.replace(/_layer$/,"").replace(/_/g," "))} · ${esc(e.category)}</div>
-        <div class="sel-name">${esc(e.name)}</div>
-        ${e.desc ? `<div class="sel-desc">${esc(e.desc)}</div>` : ""}
-      </div>
-      <button class="sel-remove" title="移除" onclick="removeSelection('${esc(layer)}','${esc(e.category)}')">✕</button>
-    </div>`).join("");
-}
-
-function renderActionButtons() {
-  const btnNext  = document.getElementById("btnNextLayer");
-  const btnPrev  = document.getElementById("btnPrevLayer");
-  const btnFin   = document.getElementById("btnFinish");
-  const btnExp   = document.getElementById("btnExport");
-  const cur      = currentLayer();
-
-  const allInCur = cur && (requirements[cur]||[]).every(c => Object.keys(selections[cur]||{}).includes(c));
-  btnNext.style.display = (allInCur && step < phases.length - 1) ? "inline-block" : "none";
-  btnFin.style.display  = (allInCur && step >= phases.length - 1 && step < phases.length) ? "inline-block" : "none";
-  btnPrev.style.display = (step > 0) ? "inline-block" : "none";
-  btnExp.style.display  = (step >= phases.length) ? "inline-block" : "none";
+function positionTooltip(event) {
+  const tooltip = document.getElementById("somTooltip");
+  const margin  = 14;
+  const tw      = tooltip.offsetWidth  || 260;
+  const th      = tooltip.offsetHeight || 80;
+  let   lx      = event.clientX + margin;
+  let   ly      = event.clientY + margin;
+  if (lx + tw > window.innerWidth  - 4) lx = event.clientX - tw - margin;
+  if (ly + th > window.innerHeight - 4) ly = event.clientY - th - margin;
+  tooltip.style.left = `${lx}px`;
+  tooltip.style.top  = `${ly}px`;
 }
 
 // ════════════════════════════════════════════════════════════
-//  Actions
+//  Data loading & render
 // ════════════════════════════════════════════════════════════
-function removeSelection(layer, category) {
-  if (selections[layer]) {
-    delete selections[layer][category];
-    // If we were past the layer step, roll back
-    const layerIdx = phases.indexOf(layer);
-    if (layerIdx >= 0 && step > layerIdx) step = layerIdx;
-  }
-  render();
-}
-
-document.getElementById("btnReset").addEventListener("click", () => {
-  initSelections();
-  render();
-  toast("已重置所有选择");
-});
-
-document.getElementById("btnReload").addEventListener("click", async () => {
-  document.getElementById("loadingOverlay").style.display = "flex";
-  document.querySelector("#loadingOverlay span").textContent = "正在重新加载…";
-  await loadBundle();
-});
-
-document.getElementById("btnNextLayer").addEventListener("click", () => {
-  if (step < phases.length - 1) { step++; render(); }
-});
-document.getElementById("btnPrevLayer").addEventListener("click", () => {
-  if (step > 0) { step--; render(); }
-});
-document.getElementById("btnFinish").addEventListener("click", () => {
-  step = phases.length;
-  render();
-  toast("🎉 全层级装配完成！", 3000);
-});
-
-document.getElementById("btnExport").addEventListener("click", () => {
-  const out = {};
-  phases.forEach(layer => {
-    out[layer] = {};
-    Object.entries(selections[layer] || {}).forEach(([cat, elem]) => {
-      out[layer][cat] = elem;
-    });
-  });
-  const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
-  const a    = document.createElement("a");
-  a.href     = URL.createObjectURL(blob);
-  a.download = "som_selections.json";
-  a.click();
-  toast("已导出选择结果");
-});
-
-// ════════════════════════════════════════════════════════════
-//  Data loading
-// ════════════════════════════════════════════════════════════
-async function loadBundle() {
+async function loadAndRender() {
   try {
-    const resp = await fetch("/api/som_data");
+    const resp = await fetch("/api/comparison_data");
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    bundle = await resp.json();
+    const comparison = await resp.json();
 
-    prepareData();
-    initSelections();
+    const bundleNo   = comparison.no_hungarian   || {};
+    const bundleWith = comparison.with_hungarian  || {};
 
-    // Update header badge
-    const n = (bundle?.graph_data?.nodes||[]).filter(n=>n.elements&&n.elements.length>0).length;
-    const r = bundle?.success_count ?? "?";
-    document.getElementById("hdrBadge").textContent = `${r} runs · ${n} 非空节点`;
+    // Build shared color scheme
+    buildSharedColors(bundleNo, bundleWith);
 
-    render();
+    // Prepare data
+    const dataNo   = prepareBundle(bundleNo);
+    const dataWith = prepareBundle(bundleWith);
+
+    // Header badge
+    const totalElems = dataWith.cells.filter(c => c.elements.length > 0)
+                        .reduce((s,c) => s + c.elements.length, 0);
+    const runs = bundleWith?.success_count ?? bundleNo?.success_count ?? "?";
+    document.getElementById("hdrBadge").textContent =
+      `${runs} runs · ${totalElems} 元素`;
+
+    // Stats
+    const statsNo   = computeStats(dataNo);
+    const statsWith = computeStats(dataWith);
+    renderStats("statsLeft",  statsNo,   true);
+    renderStats("statsRight", statsWith, false);
+
+    // Legend
+    renderLegend();
+
+    // Render panels
+    renderSOMPanel("canvasLeft",  dataNo,   true);
+    renderSOMPanel("canvasRight", dataWith, false);
+
+    // Hide loaders
+    document.getElementById("loadingLeft").style.display  = "none";
+    document.getElementById("loadingRight").style.display = "none";
+
   } catch (err) {
-    console.error("Failed to load bundle:", err);
-    document.querySelector("#loadingOverlay span").textContent = `加载失败: ${err.message}`;
-    return;
+    console.error("Failed to load comparison data:", err);
+    document.querySelector("#loadingLeft span").textContent  = `加载失败: ${err.message}`;
+    document.querySelector("#loadingRight span").textContent = `加载失败: ${err.message}`;
   }
-  document.getElementById("loadingOverlay").style.display = "none";
 }
 
-// ════════════════════════════════════════════════════════════
-//  Auto-reload on window focus (hot-reload during debug)
-// ════════════════════════════════════════════════════════════
+// ── Reload button ──
+document.getElementById("btnReload").addEventListener("click", async () => {
+  document.getElementById("loadingLeft").style.display  = "flex";
+  document.getElementById("loadingRight").style.display = "flex";
+  await loadAndRender();
+  toast("已刷新数据");
+});
+
+// ── Auto-reload on window focus ──
 let lastFocusReload = 0;
 window.addEventListener("focus", async () => {
   const now = Date.now();
   if (now - lastFocusReload < 3000) return;
   lastFocusReload = now;
-  // Silent re-fetch; only re-render if data changed
   try {
-    const resp = await fetch("/api/som_data");
+    const resp = await fetch("/api/comparison_data");
     if (!resp.ok) return;
-    const newBundle = await resp.json();
-    const newSig = JSON.stringify(newBundle?.graph_data?.nodes?.length);
-    const oldSig = JSON.stringify(bundle?.graph_data?.nodes?.length);
-    if (newSig !== oldSig) {
-      bundle = newBundle;
-      prepareData();
-      initSelections();
-      render();
+    const cmp = await resp.json();
+    const sig = JSON.stringify(cmp?.with_hungarian?.graph_data?.nodes?.length);
+    if (!window._lastSig || window._lastSig !== sig) {
+      window._lastSig = sig;
+      await loadAndRender();
       toast("SOM 数据已更新");
     }
   } catch (_) { /* silent */ }
 });
 
-// ════════════════════════════════════════════════════════════
-//  Boot
-// ════════════════════════════════════════════════════════════
-loadBundle();
+// ── Boot ──
+loadAndRender();
 </script>
 </body>
 </html>

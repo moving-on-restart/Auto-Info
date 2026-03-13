@@ -23,7 +23,7 @@ from . import json_io, element_extractor, som_trainer
 # 公开 API
 # ──────────────────────────────────────────────────────────────────────────────
 
-def build_som_from_runs(raw_runs: list) -> dict:
+def build_som_from_runs(raw_runs: list, use_hungarian: bool = True) -> dict:
     """
     从标准化的 raw_runs 列表运行完整 SOM 流水线。
 
@@ -31,6 +31,8 @@ def build_som_from_runs(raw_runs: list) -> dict:
     ----------
     raw_runs : list
         来自 json_io.normalize_runs_payload 或 json_io.load_runs_from_file 的列表。
+    use_hungarian : bool
+        True（默认）：使用匈牙利算法；False：使用贪心 BMU 分配（用于对比演示）。
 
     Returns
     -------
@@ -68,7 +70,8 @@ def build_som_from_runs(raw_runs: list) -> dict:
         raise ValueError("无法从 runs 中提取到任何设计元素，请检查 JSON 格式。")
 
     # ── 第二步：训练 SOM ──
-    som_nodes = som_trainer.train_som(elements, run_ids, pagerank, degree_cent)
+    som_nodes = som_trainer.train_som(elements, run_ids, pagerank, degree_cent,
+                                      use_hungarian=use_hungarian)
 
     if not som_nodes:
         raise ValueError("SOM 训练未产生任何节点，请检查元素数量是否过少。")
@@ -89,6 +92,31 @@ def build_som_from_runs(raw_runs: list) -> dict:
         "group_defaults": group_defaults,
         "layout_mode": "som",
     }
+
+
+def build_comparison_from_runs(raw_runs: list) -> tuple:
+    """
+    同时构建两个 SOM bundle，用于可视化对比：
+
+      - bundle_no_hungarian  : 贪心 BMU 分配（不使用匈牙利算法），可能产生节点碰撞
+      - bundle_with_hungarian: 匈牙利算法最优分配（标准流程）
+
+    两次训练使用相同的随机种子，因此 SOM 权重矩阵完全一致，
+    仅分配算法不同，便于直接对比优化效果。
+
+    Parameters
+    ----------
+    raw_runs : list
+        来自 json_io.normalize_runs_payload 或 json_io.load_runs_from_file 的列表。
+
+    Returns
+    -------
+    tuple
+        (bundle_no_hungarian, bundle_with_hungarian)
+    """
+    bundle_no_hungarian   = build_som_from_runs(raw_runs, use_hungarian=False)
+    bundle_with_hungarian = build_som_from_runs(raw_runs, use_hungarian=True)
+    return bundle_no_hungarian, bundle_with_hungarian
 
 
 def build_som_from_file(json_path: str) -> dict:
