@@ -3,27 +3,36 @@
 """
 som_module/run_debug.py
 =======================
-独立调试脚本：无需启动 Flask 服务，直接从 JSON 文件生成 SOM 图并输出结果。
+独立调试脚本：无需启动主 Flask 服务，直接从 JSON 文件生成 SOM 图、
+打印摘要，并可选地在浏览器中打开交互式可视化页面。
 
 使用方式
 --------
-# 方式一：使用内置示例数据（sample_data/sample_runs.json）
+# 方式一：使用内置示例数据，仅打印摘要
   python run_debug.py
 
 # 方式二：指定 JSON 文件路径
   python run_debug.py --input /path/to/your/runs.json
 
-# 方式三：指定输入并保存结果
-  python run_debug.py --input data.json --output result.json
+# 方式三：生成后在浏览器中打开交互式可视化 ← 推荐
+  python run_debug.py --input runs.json --viz
 
-# 方式四：仅输出摘要，不保存文件
+# 方式四：指定可视化端口（默认 7860）
+  python run_debug.py --input runs.json --viz --port 8080
+
+# 方式五：生成后保存结果 JSON 并打开可视化
+  python run_debug.py --input runs.json --output result.json --viz
+
+# 方式六：仅输出摘要，不保存文件
   python run_debug.py --input data.json --no-save
 
 命令行参数
 ----------
-  --input   输入 JSON 文件路径（可以是绝对或相对路径）
-  --output  输出 JSON 文件路径（默认: som_debug_output.json）
-  --no-save 不保存输出文件，仅打印摘要
+  --input    输入 JSON 文件路径（可以是绝对或相对路径）
+  --output   输出 JSON 文件路径（默认: som_debug_output.json）
+  --no-save  不保存输出文件，仅打印摘要
+  --viz      运行后在浏览器中打开交互式 SOM 可视化页面
+  --port     可视化服务器端口（默认 7860，仅 --viz 时有效）
 
 调试技巧
 --------
@@ -31,6 +40,7 @@ som_module/run_debug.py
 2. 设置 config.VERBOSE = True 可查看详细的训练过程
 3. 修改 som_trainer.py 中的 _build_embeddings() 可实验不同的向量表示
 4. 修改 som_trainer.py 中的 _assign_elements_to_nodes() 可测试不同的分配策略
+5. 使用 --viz 参数可在浏览器中交互式地浏览 SOM 节点
 """
 
 import argparse
@@ -234,6 +244,17 @@ def main():
         action="store_true",
         help="不保存输出文件，仅打印摘要",
     )
+    parser.add_argument(
+        "--viz",
+        action="store_true",
+        help="完成后在浏览器中打开交互式 SOM 可视化页面",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=7860,
+        help="可视化服务器监听端口（默认 7860，仅 --viz 时有效）",
+    )
     args = parser.parse_args()
 
     print("=" * 60)
@@ -282,15 +303,27 @@ def main():
     pipeline.print_bundle_summary(bundle)
 
     # ── 5. 保存结果 ──
+    saved_path = None
     if not args.no_save:
         output_path = os.path.abspath(args.output)
         try:
-            saved = json_io.save_som_result(bundle, output_path)
-            print(f"结果已保存到: {saved}")
+            saved_path = json_io.save_som_result(bundle, output_path)
+            print(f"结果已保存到: {saved_path}")
         except Exception as e:
             print(f"⚠️  保存失败: {e}")
     else:
         print("（已跳过保存，使用 --output 可指定输出路径）")
+
+    # ── 6. 可视化 ──
+    if args.viz:
+        print(f"\n启动可视化服务器（端口 {args.port}）…")
+        try:
+            from som_module.viz.server import launch
+            launch(bundle, port=args.port, open_browser=True, block=True)
+        except ImportError:
+            print("❌ 可视化模块加载失败，请确保已安装 Flask: pip install flask")
+        except KeyboardInterrupt:
+            print("\n[SOM Viewer] 已停止。")
 
 
 if __name__ == "__main__":
