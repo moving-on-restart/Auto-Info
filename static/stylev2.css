@@ -12,6 +12,8 @@
             --bottom-section-flex: 1.28;
             --top-pane-min-height: 220px;
             --info-panel-width: clamp(200px, 20%, 300px);
+            --field-radius: 10px;
+            --field-border: #d6dde8;
         }
 
         /* --- 全局重置 --- */
@@ -35,12 +37,15 @@
             overflow: hidden;
         }
         .panel-content-steps {
-            padding: 20px;
+            position: relative;
+            padding: 14px 14px 16px;
             overflow-y: auto;
             display: flex;
             flex-direction: column;
             justify-content: flex-start;
-            gap: 16px;
+            gap: 10px;
+            min-height: 0;
+            scrollbar-gutter: stable;
         }
         .panel-content-steps::before {
             content: '';
@@ -73,33 +78,145 @@
             position: relative;
         }
         /* --- 步骤与输入 (Steps & Inputs) --- */
-        .step-container { margin-bottom: 25px; position: relative; }
+        .step-container { margin-bottom: 14px; position: relative; }
         .step-container::before { content: ''; position: absolute; left: 7px; top: 25px; bottom: -30px; width: 1px; background: #e5e7eb; z-index: 0; }
         .step-container:last-child::before { display: none; }
-        .step-label { display: flex; align-items: center; gap: 10px; font-weight: 500; margin-bottom: 10px; background: #fff; position: relative; z-index: 1; font-size: 13px;}
+        .step-label { display: flex; align-items: center; gap: 8px; font-weight: 500; margin-bottom: 6px; background: #fff; position: relative; z-index: 1; font-size: 12px;}
         .step-dot { width: 16px; height: 16px; background: var(--primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-size: 10px; }
         .panel-content-steps .step-container { margin-bottom: 0; }
         .panel-content-steps .step-container::before { display: none; }
 
-        .input-group { margin-left: 26px; }
+        .input-group { margin-left: 22px; }
         .step-chart-preview {
-            margin-top: 10px;
-            border: 1px solid #e5e7eb;
-            border-radius: 6px;
+            margin-top: 6px;
+            border: 1px solid var(--field-border);
+            border-radius: var(--field-radius);
             overflow: hidden;
-            background: #f8fafc;
+            background: #ffffff;
         }
         .step-chart-preview-title {
-            padding: 6px 10px;
+            padding: 4px 8px;
+            font-size: 8px;
+            font-weight: 700;
+            letter-spacing: 0.4px;
+            color: #64748b;
+            background: #ffffff;
+            border-bottom: 1px solid var(--field-border);
+        }
+        textarea, input[type="text"], select { width: 100%; padding: 8px 10px; border: 1px solid var(--field-border); font-family: 'JetBrains Mono', monospace; font-size: 11px; margin-bottom: 6px; background: #ffffff; transition: border 0.2s; border-radius: var(--field-radius);}
+        textarea:focus, input[type="text"]:focus, select:focus { border-color: var(--primary); background: #fff; }
+
+        .academic-upload-card {
+            position: relative;
+            margin-bottom: 6px;
+            border: 1px solid #d6dde6;
+            border-radius: 8px;
+            background: #ffffff;
+            padding: 8px 10px;
+            box-shadow: none;
+        }
+        .academic-upload-card:hover {
+            border-color: #c5ceda;
+            background: #ffffff;
+        }
+        .academic-upload-card-compact {
+            margin-top: 4px;
+        }
+        .academic-upload-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+        .academic-upload-title {
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.7px;
+            text-transform: uppercase;
+            color: #334155;
+        }
+        .academic-upload-tag {
             font-size: 9px;
             font-weight: 700;
-            letter-spacing: 0.5px;
-            color: #64748b;
-            background: #f1f5f9;
-            border-bottom: 1px solid #e5e7eb;
+            letter-spacing: 0.6px;
+            color: #0f172a;
+            background: #dbe4ef;
+            border: 1px solid #c4d0df;
+            border-radius: 999px;
+            padding: 2px 8px;
+            text-transform: uppercase;
         }
-        textarea, input[type="text"], input[type="file"], select { width: 100%; padding: 8px; border: 1px solid var(--border-color); font-family: 'JetBrains Mono', monospace; font-size: 11px; margin-bottom: 8px; background: #fbfbfb; transition: border 0.2s; border-radius: 4px;}
-        textarea:focus, input:focus, select:focus { border-color: var(--primary); background: #fff; }
+        .academic-upload-body {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .academic-upload-trigger {
+            flex: 0 0 auto;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            height: 26px;
+            padding: 0 10px;
+            border: 1px solid #475569;
+            border-radius: 4px;
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+            text-transform: uppercase;
+            color: #334155;
+            background: #f8fafc;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .academic-upload-trigger:hover {
+            background: #334155;
+            color: #ffffff;
+        }
+        .academic-upload-trigger:focus-visible {
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25);
+        }
+        .academic-upload-filename {
+            flex: 1 1 auto;
+            min-width: 0;
+            border: 1px dashed #c6cfdb;
+            border-radius: 4px;
+            padding: 6px 8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 9px;
+            color: #6b7280;
+            background: #ffffff;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .academic-upload-filename.has-file {
+            color: #1e3a8a;
+            border-color: #93c5fd;
+            background: #ffffff;
+            font-weight: 600;
+        }
+        .academic-upload-note {
+            margin-top: 4px;
+            font-size: 8px;
+            line-height: 1.25;
+            color: #64748b;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .academic-file-input {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
 
         /* --- 按钮 (Buttons) --- */
         button { width: 100%; padding: 8px; background: #fff; border: 1px solid var(--text-main); color: var(--text-main); font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s; text-transform: uppercase; border-radius: 4px; margin-bottom: 5px;}
@@ -109,38 +226,101 @@
         button.primary-btn:hover { background: #1d4ed8; }
         .random-generate-row {
             display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-top: 5px;
-            margin-bottom: 8px;
-        }
-        .random-count-label {
-            flex: 0 0 20px;
-            text-align: center;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 11px;
-            font-weight: 600;
-            color: var(--text-muted);
-        }
-        .random-count-input {
-            flex: 0 0 78px;
-            width: 78px;
-            padding: 8px;
-            border: 1px solid var(--border-color);
-            border-radius: 4px;
-            margin-bottom: 0;
-            text-align: center;
-            font-size: 11px;
-            font-family: 'JetBrains Mono', monospace;
+            flex-direction: column;
+            gap: 6px;
+            margin-top: 3px;
+            margin-bottom: 6px;
+            padding: 8px 10px;
+            border: 1px solid #d6dde8;
+            border-radius: 8px;
             background: #ffffff;
         }
+        .random-slider-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .random-count-label {
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            color: #334155;
+        }
+        .random-count-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            font-weight: 700;
+            color: #1d4ed8;
+        }
+        .random-count-input {
+            width: 100%;
+            margin: 0;
+        }
+        .random-count-slider {
+            -webkit-appearance: none;
+            appearance: none;
+            height: 6px;
+            border: 1px solid #c7d2e0;
+            border-radius: 999px;
+            background: #e2e8f0;
+            transition: box-shadow 0.2s ease, border-color 0.2s ease;
+        }
+        .random-count-slider:focus {
+            border-color: #2563eb;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+            background: #dbeafe;
+        }
+        .random-count-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            border: 2px solid #ffffff;
+            background: #1d4ed8;
+            box-shadow: 0 2px 6px rgba(30, 64, 175, 0.35);
+            cursor: pointer;
+        }
+        .random-count-slider::-moz-range-thumb {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            border: 2px solid #ffffff;
+            background: #1d4ed8;
+            box-shadow: 0 2px 6px rgba(30, 64, 175, 0.35);
+            cursor: pointer;
+        }
+        .random-count-slider::-moz-range-track {
+            height: 6px;
+            border: 1px solid #c7d2e0;
+            border-radius: 999px;
+            background: #e2e8f0;
+        }
+        .random-count-slider::-moz-range-progress {
+            height: 6px;
+            border: 1px solid #2563eb;
+            border-radius: 999px;
+            background: #2563eb;
+        }
+        .random-slider-scale {
+            display: flex;
+            justify-content: space-between;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 9px;
+            color: #64748b;
+            margin-top: -4px;
+        }
         .random-generate-btn {
-            flex: 1 1 auto;
             width: auto;
+            align-self: flex-end;
+            padding: 5px 10px;
+            font-size: 10px;
             margin-bottom: 0;
             color: #059669;
             border-color: #10b981;
-            background: #f0fdf4;
+            background: #ffffff;
             text-transform: none;
             letter-spacing: 0.2px;
         }
@@ -149,11 +329,22 @@
             border-color: #10b981;
             color: #fff;
         }
+        .build-mode-hint {
+            margin-top: 4px;
+            font-size: 9px;
+            color: #64748b;
+            line-height: 1.35;
+        }
+        .graph-json-hidden-input {
+            display: none;
+        }
 
         @media (max-width: 480px) {
-            .random-generate-row { flex-wrap: wrap; }
-            .random-count-input { flex: 1 0 88px; width: 100%; }
-            .random-generate-btn { flex: 1 0 100%; width: 100%; }
+            .academic-upload-body { flex-direction: column; align-items: stretch; }
+            .academic-upload-trigger { width: 100%; }
+            .random-generate-row { padding: 9px 10px; }
+            .random-count-label { letter-spacing: 0.5px; }
+            .random-generate-btn { width: 100%; align-self: stretch; }
         }
 
         /* --- 选项卡系统 (Tab System - 右侧面板) --- */
@@ -333,9 +524,9 @@
 
         /* 下半部分：参考图像 */
         #vis.step-chart-area {
-            height: 220px;
+            height: 240px;
             flex: 0 0 auto;
-            padding: 8px;
+            padding: 6px;
             background: #ffffff;
         }
         #vis.step-chart-area .vega-embed,
@@ -917,15 +1108,16 @@
 
         /* Palette panel */
         .palette-preview-wrap {
-            border: 1px solid #e5e7eb;
-            border-radius: 6px;
-            background: #f8fafc;
-            min-height: 180px;
-            margin-bottom: 10px;
+            border: 1px solid var(--field-border);
+            border-radius: var(--field-radius);
+            background: #ffffff;
+            min-height: 156px;
+            margin-bottom: 8px;
             display: flex;
             justify-content: center;
             align-items: center;
             overflow: hidden;
+            padding: 4px;
         }
 
         #tab-palette #mainImage {
@@ -938,15 +1130,19 @@
         .palette-options-panel {
             display: flex;
             flex-direction: column;
-            gap: 8px;
-            margin-bottom: 10px;
+            gap: 6px;
+            margin-bottom: 8px;
+            border: 1px solid var(--field-border);
+            border-radius: var(--field-radius);
+            background: #ffffff;
+            padding: 6px;
         }
 
         .palette-option-card {
-            border: 1px solid #e5e7eb;
+            border: 1px solid var(--field-border);
             background: #fff;
-            border-radius: 6px;
-            padding: 8px;
+            border-radius: calc(var(--field-radius) - 2px);
+            padding: 7px 8px;
             cursor: pointer;
         }
 
@@ -959,8 +1155,48 @@
         .palette-option-title {
             font-size: 10px;
             color: #374151;
-            margin-bottom: 6px;
+            margin-bottom: 4px;
             font-weight: 600;
+        }
+
+        #tableDesc,
+        #queryInput,
+        #tab-palette #regionPromptInput,
+        #tab-palette #palettePromptPreview {
+            border-radius: var(--field-radius);
+            border: 1px solid var(--field-border);
+            background: #ffffff;
+        }
+
+        #tab-palette .data-row {
+            margin-bottom: 8px;
+            border: 1px solid var(--field-border);
+            border-radius: var(--field-radius);
+            padding: 8px 10px;
+            background: #ffffff;
+        }
+
+        #tab-palette .data-value {
+            font-size: 11px;
+        }
+
+        @media (max-height: 860px) {
+            .panel-content-steps {
+                padding: 10px 10px 12px;
+                gap: 8px;
+            }
+            .step-label {
+                margin-bottom: 4px;
+            }
+            .step-chart-preview {
+                margin-top: 4px;
+            }
+            #vis.step-chart-area {
+                height: 180px;
+            }
+            .academic-upload-note {
+                display: none;
+            }
         }
 
         @media (max-width: 1280px) {
