@@ -245,6 +245,41 @@ def _assign_elements_to_nodes(som, combined_vectors, element_list: list, grid_si
     return som_nodes
 
 
+def _assign_elements_bmu(som, combined_vectors, element_list: list, grid_size: int):
+    """
+    使用标准最佳匹配单元（BMU / winner）将元素分配到 SOM 网格节点。
+
+    与匈牙利算法不同，此方法允许多个元素映射到同一节点（多对一）。
+    可通过 config.ASSIGN_METHOD = "bmu" 启用。
+
+    Returns
+    -------
+    list
+        som_nodes 列表，格式与 _assign_elements_to_nodes 完全相同。
+        多元素节点的 elements 列表按出现频次降序排列。
+    """
+    import numpy as np
+
+    u_matrix = som.distance_map()
+    som_nodes = [
+        {"x": x, "y": y, "u_value": float(u_matrix[x][y]), "elements": []}
+        for x in range(grid_size)
+        for y in range(grid_size)
+    ]
+
+    for i, vec in enumerate(combined_vectors):
+        wx, wy = som.winner(vec)
+        grid_idx = wx * grid_size + wy
+        som_nodes[grid_idx]["elements"].append(element_list[i])
+
+    # 多元素节点内按频次降序排列，确保最重要的元素在 elements[0]
+    for node in som_nodes:
+        if len(node["elements"]) > 1:
+            node["elements"].sort(key=lambda e: -float(e.get("count", 1) or 1))
+
+    return som_nodes
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # 公开 API
 # ──────────────────────────────────────────────────────────────────────────────
@@ -348,13 +383,13 @@ def train_som(elements: dict, run_ids: list, pagerank: dict, degree_cent: dict,
         print("[SOM] 训练完成。")
 
     # ── 6. 分配元素到节点 ──
-    if use_hungarian:
+    if config.ASSIGN_METHOD == "bmu":
         if config.VERBOSE:
-            print("[SOM] 使用匈牙利算法进行最优分配 ...")
-        som_nodes = _assign_elements_to_nodes(som, combined_vectors, element_list, grid_size)
+            print("[SOM] 使用 BMU（最佳匹配单元）分配元素。")
+        som_nodes = _assign_elements_bmu(som, combined_vectors, element_list, grid_size)
     else:
         if config.VERBOSE:
-            print("[SOM] 使用贪心 BMU 分配（不使用匈牙利算法）...")
-        som_nodes = _assign_elements_greedy(som, combined_vectors, element_list, grid_size)
+            print("[SOM] 使用匈牙利算法（线性和分配）分配元素。")
+        som_nodes = _assign_elements_to_nodes(som, combined_vectors, element_list, grid_size)
 
     return som_nodes

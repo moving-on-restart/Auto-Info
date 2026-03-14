@@ -490,10 +490,35 @@ function prepareBundle(bundle) {
   const cells = nodes.map(cell => {
     const elems = (Array.isArray(cell.elements) ? cell.elements : [])
       .map(normElem).filter(Boolean);
-    const cx = (Number(cell.x || 0) + (Number(cell.y || 0) % 2 === 0 ? 0 : 0.5)) * HEX_W;
-    const cy =  Number(cell.y || 0) * (HEX_H * 0.75);
-    elems.forEach(e => { maxCount = Math.max(maxCount, e.count); });
-    return { x: cell.x, y: cell.y, u_value: cell.u_value, elements: elems, cx, cy };
+    const cx = (Number(cell.x||0) + (Number(cell.y||0) % 2 === 0 ? 0 : 0.5)) * HEX_W;
+    const cy =  Number(cell.y||0) * (HEX_H * 0.75);
+    const nc  = { x: cell.x, y: cell.y, u_value: cell.u_value, elements: elems, cx, cy };
+
+    // 注册节点内所有元素（BMU 模式下多元素可堆叠到同一节点）
+    elems.forEach(e => {
+      nodeByElemId[e.id] = nc;
+      layerSet.add(e.layer);
+      if (!requirements[e.layer]) requirements[e.layer] = new Set();
+      requirements[e.layer].add(e.category);
+
+      if (!catSeen.has(e.category)) {
+        const cp = COLOR_PALETTES[catCount % COLOR_PALETTES.length];
+        catColorScales[e.category] = cp.scale;
+        badgeColors[e.category]    = cp.hex;
+        catSeen.add(e.category);
+        catCount++;
+      }
+      maxCount = Math.max(maxCount, Number(e.count || 1));
+    });
+    return nc;
+  });
+
+  phases = Array.from(layerSet).sort((a, b) =>
+    (LAYER_PRIORITY[a] || 99) - (LAYER_PRIORITY[b] || 99)
+  );
+  phases.forEach((layer, i) => {
+    layerColors[layer]  = COLOR_PALETTES[i % COLOR_PALETTES.length].hex;
+    requirements[layer] = Array.from(requirements[layer] || []);
   });
 
   return { cells, maxCount };
@@ -563,37 +588,98 @@ function renderSOMPanel(canvasId, data, showCollisionBadges) {
     .on("zoom", ev => zoomRoot.attr("transform", ev.transform));
   svgRoot.call(zoomBeh);
 
-  const hexLayer = zoomRoot.append("g").attr("class","hex-layer");
+  const linkLayer = zoomRoot.append("g").attr("class","links-layer").style("pointer-events","none");
+  const hexLayer  = zoomRoot.append("g").attr("class","hex-layer");
+
+  // ── Build active links ──
+  const activeLinks = [];
+  if (step > 0 && step <= phases.length) {
+    let prev = [];
+    for (let i = 0; i < step; i++) {
+      prev = prev.concat(Object.values(selections[phases[i]] || {}));
+    }
+    cells.forEach(cell => {
+      if (!cell.elements.length) return;
+      // 遍历节点内所有属于当前层的元素（BMU 模式下可能有多个）
+      cell.elements.filter(e => e.layer === cur).forEach(e => {
+        prev.forEach(srcElem => {
+          const lk = linkBetween(srcElem.id, e.id);
+          if (!lk) return;
+          const srcCell = nodeByElemId[srcElem.id];
+          if (!srcCell) return;
+          activeLinks.push({ id: `${srcElem.id}||${e.id}`, source: srcCell, target: cell,
+            lift: Number(lk.lift||0), category: e.category });
+          activeDegree[srcElem.id] = (activeDegree[srcElem.id]||0) + 1;
+          activeDegree[e.id]       = (activeDegree[e.id]||0) + 1;
+        });
+      });
+    });
+  }
 
   // ── Hex groups ──
   const hexGroups = hexLayer.selectAll(".hex-group")
     .data(cells).enter().append("g")
-    .attr("class","hex-group")
+    .attr("class", d => {
+      const cls = ["hex-group"];
+      if (!d.elements.length) { cls.push("dimmed"); return cls.join(" "); }
+      // 检查节点内所有元素，任意一个被选中即为 selected
+      const isSel = d.elements.some(e => (selections[e.layer] || {})[e.category]?.id === e.id);
+      if (isSel) cls.push("selected-node");
+      // 节点内没有属于当前层的元素且未被选中 → 变暗
+      const hasCurLayer = d.elements.some(e => e.layer === cur);
+      if (!hasCurLayer && !isSel) cls.push("dimmed");
+      // 任意当前层元素有跨层连线 → 高亮
+      if (!isSel && hasCurLayer) {
+        const hasHighlight = d.elements.some(e => e.layer === cur && (activeDegree[e.id]||0) > 0);
+        if (hasHighlight) cls.push("highlight");
+      }
+      return cls.join(" ");
+    })
     .attr("transform", d => `translate(${d.cx},${d.cy})`)
     .on("mouseover", function(event, d) {
       if (!d.elements.length) return;
-      const e    = d.elements[0];
-      const cat  = e.category;
-      const col  = badgeColors[cat] || "#475569";
-
-      let extraHtml = "";
-      if (showCollisionBadges && d.elements.length > 1) {
-        const others = d.elements.slice(1).map(x =>
-          `<div>· ${esc(x.name)} <span style="color:#94a3b8">(${esc(x.category)})</span></div>`
-        ).join("");
-        extraHtml = `
-          <div class="tt-collision">⚠ 节点碰撞：共 ${d.elements.length} 个元素</div>
-          <div class="tt-collision-list">${others}</div>`;
-      }
-
-      tooltip.innerHTML = `
-        <div class="tt-badge" style="background:${col}">${esc(cat)}</div>
-        <div class="tt-name">${esc(e.name)}</div>
-        ${e.desc ? `<div class="tt-desc">${esc(e.desc)}</div>` : ""}
-        <div class="tt-meta">层级: ${esc(e.layer)} · 频次: ${esc(e.count)}</div>
-        ${extraHtml}`;
+      const nodeIds = new Set(d.elements.map(e => e.id));
+      // 构建 tooltip：节点内每个元素一行，当前层的置顶
+      const sorted = [...d.elements].sort((a, b) => {
+        const aCur = a.layer === cur ? 0 : 1;
+        const bCur = b.layer === cur ? 0 : 1;
+        return aCur - bCur;
+      });
+      const rows = sorted.map((e, i) => {
+        const deg = activeDegree[e.id] || 0;
+        const isCur = e.layer === cur;
+        const sep = i > 0 ? "border-top:1px solid #e2e8f0;margin-top:5px;padding-top:5px;" : "";
+        return `<div style="${sep}${!isCur ? "opacity:0.5;" : ""}">
+          <b style="color:${badgeColors[e.category]||'#2c3e50'}">[${esc(e.category)}]</b>&nbsp;
+          <span style="font-weight:600">${esc(e.name)}</span>
+          <span style="font-size:11px;color:#c0392b;font-weight:700;float:right;margin-left:8px">频次: ${esc(e.count)}</span>
+          ${e.desc ? `<br><span style="font-size:11px;color:#555;display:block;margin-top:4px">${esc(e.desc)}</span>` : ""}
+          ${deg > 0 ? `<span style="font-size:11px;color:#2980b9;display:block;margin-top:4px;font-weight:700">跨层连线: ${deg}</span>` : ""}
+          <span style="font-size:10px;color:#94a3b8;display:block;margin-top:3px">层级: ${esc(e.layer)}</span>
+        </div>`;
+      }).join("");
+      tooltip.innerHTML = rows;
       tooltip.style.visibility = "visible";
-      positionTooltip(event);
+      const r = container.getBoundingClientRect();
+      tooltip.style.left = `${event.clientX - r.left + 15}px`;
+      tooltip.style.top  = `${event.clientY - r.top  + 15}px`;
+
+      const hasAnyDeg = d.elements.some(e => (activeDegree[e.id]||0) > 0);
+      if (hasAnyDeg) {
+        linkLayer.selectAll(".active-link")
+          .transition().duration(180)
+          .attr("stroke-opacity", lk => {
+            const srcIds = new Set((lk?.source?.elements||[]).map(e => e.id));
+            const tgtIds = new Set((lk?.target?.elements||[]).map(e => e.id));
+            return [...nodeIds].some(id => srcIds.has(id) || tgtIds.has(id)) ? 1 : 0.05;
+          })
+          .attr("stroke-width", lk => {
+            const bw = thicknessScale ? thicknessScale(Number(lk.lift||0)) : 1.5;
+            const srcIds = new Set((lk?.source?.elements||[]).map(e => e.id));
+            const tgtIds = new Set((lk?.target?.elements||[]).map(e => e.id));
+            return [...nodeIds].some(id => srcIds.has(id) || tgtIds.has(id)) ? bw * 1.8 : bw;
+          });
+      }
     })
     .on("mousemove", function(event) {
       if (tooltip.style.visibility !== "visible") return;
@@ -601,6 +687,22 @@ function renderSOMPanel(canvasId, data, showCollisionBadges) {
     })
     .on("mouseout", function() {
       tooltip.style.visibility = "hidden";
+      linkLayer.selectAll(".active-link").transition().duration(180)
+        .attr("stroke-opacity", 0.5)
+        .attr("stroke-width", d => thicknessScale ? thicknessScale(Number(d.lift||0)) : 1.5);
+    })
+    .on("click", function(_, d) {
+      if (!d.elements.length || !cur) return;
+      // 找出节点内属于当前层的元素
+      const curElems = d.elements.filter(e => e.layer === cur);
+      if (!curElems.length) return;
+
+      // 多个当前层元素：弹出选择器；只有一个则直接选中
+      if (curElems.length > 1) {
+        showElemPicker(d, curElems, cur);
+        return;
+      }
+      selectElem(curElems[0], cur);
     });
 
   // ── Hex polygon ──
@@ -608,32 +710,28 @@ function renderSOMPanel(canvasId, data, showCollisionBadges) {
     .attr("class","hex")
     .attr("points", hexPoints(HEX_SIZE))
     .attr("fill", d => nodeColor(d.elements))
-    .attr("opacity", d => d.elements.length === 0 ? 0.4 : 1);
+    .attr("opacity", d => d.elements.length === 0 ? 0.5 : 1);
 
-  // ── Collision badge (only for no-Hungarian panel) ──
-  if (showCollisionBadges) {
-    hexGroups.filter(d => d.elements.length > 1)
-      .append("circle")
-      .attr("cx", HEX_SIZE * 0.55)
-      .attr("cy", -HEX_SIZE * 0.55)
-      .attr("r", 5.5)
-      .attr("fill", "#ea580c")
-      .attr("stroke", "#ffffff")
-      .attr("stroke-width", 1.5)
-      .style("pointer-events","none");
+  hexGroups.append("circle").attr("class","contact-dot")
+    .attr("cx",0).attr("cy",0).attr("r",0)
+    .attr("fill","#fff").attr("stroke","#1e293b").attr("stroke-width",1.5)
+    .attr("opacity",0).style("pointer-events","none");
 
-    hexGroups.filter(d => d.elements.length > 1)
-      .append("text")
-      .attr("x", HEX_SIZE * 0.55)
-      .attr("y", -HEX_SIZE * 0.55 + 0.5)
-      .attr("text-anchor","middle")
-      .attr("dominant-baseline","middle")
-      .attr("font-size","6.5px")
-      .attr("fill","#ffffff")
-      .attr("font-weight","700")
-      .style("pointer-events","none")
-      .text(d => d.elements.length);
-  }
+  hexGroups.select(".contact-dot").transition().duration(280)
+    .attr("r", d => {
+      if (!d.elements.length) return 0;
+      // 取当前层中连线度最大的元素
+      const curE = d.elements.filter(e => e.layer === cur)
+        .reduce((best, e) => (activeDegree[e.id]||0) > (activeDegree[best?.id]||0) ? e : best, null);
+      if (!curE) return 0;
+      const deg = activeDegree[curE.id] || 0;
+      return deg > 0 ? 2 + deg * 2 : 0;
+    })
+    .attr("opacity", d => {
+      if (!d.elements.length) return 0;
+      const curE = d.elements.find(e => e.layer === cur && (activeDegree[e.id]||0) > 0);
+      return curE ? 1 : 0;
+    });
 
   // ── Auto-fit ──
   const rect = container.getBoundingClientRect();
@@ -650,6 +748,84 @@ function renderSOMPanel(canvasId, data, showCollisionBadges) {
   const tx = ((vw - cw * sc) / 2) - mnX * sc;
   const ty = ((vh - ch * sc) / 2) - mnY * sc;
   svgRoot.call(zoomBeh.transform, d3.zoomIdentity.translate(tx, ty).scale(sc));
+
+  // ── 多元素角标（BMU 模式下节点内有多个元素时显示数量） ──
+  hexGroups.append("text").attr("class","multi-badge")
+    .attr("x", HEX_SIZE * 0.5).attr("y", -HEX_SIZE * 0.52)
+    .attr("text-anchor","middle").attr("dominant-baseline","middle")
+    .attr("font-size","8px").attr("font-weight","700")
+    .attr("fill","#c0392b").style("pointer-events","none")
+    .text(d => d.elements.length > 1 ? `×${d.elements.length}` : "");
+}
+
+// ════════════════════════════════════════════════════════════
+//  选中元素 & 多元素选择器
+// ════════════════════════════════════════════════════════════
+function selectElem(e, layer) {
+  if (!selections[layer]) selections[layer] = {};
+  selections[layer][e.category] = e;
+  document.getElementById("somTooltip").style.visibility = "hidden";
+
+  const req = requirements[layer] || [];
+  const got = Object.keys(selections[layer] || {});
+  if (req.length > 0 && req.every(c => got.includes(c))) {
+    if (step < phases.length - 1) {
+      step++;
+      toast(`已完成「${layer}」，进入下一层`);
+    } else if (step === phases.length - 1) {
+      step = phases.length;
+      toast("🎉 全层级装配完成！", 3500);
+    }
+  }
+  render();
+}
+
+function showElemPicker(cell, elems, layer) {
+  // 移除已有选择器
+  document.getElementById("elemPicker")?.remove();
+
+  const picker = document.createElement("div");
+  picker.id = "elemPicker";
+  picker.style.cssText = `
+    position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    background:#fff;border:1px solid #cbd5e1;border-radius:10px;
+    box-shadow:0 8px 32px rgba(0,0,0,0.18);padding:12px 14px;
+    z-index:9999;min-width:220px;max-width:320px;font-size:13px;
+  `;
+  picker.innerHTML = `
+    <div style="font-weight:700;color:#1e293b;margin-bottom:8px;font-size:12px;">
+      该节点含 ${elems.length} 个元素，请选择：
+      <span id="pickerClose" style="float:right;cursor:pointer;color:#94a3b8;font-size:15px;line-height:1">✕</span>
+    </div>
+    ${elems.map((e, i) => `
+      <div class="picker-row" data-idx="${i}" style="
+        padding:7px 9px;border-radius:7px;cursor:pointer;
+        border:1px solid #e2e8f0;margin-bottom:5px;
+        transition:background 0.15s;">
+        <b style="color:${badgeColors[e.category]||'#2c3e50'}">[${esc(e.category)}]</b>
+        <span style="font-weight:600;margin-left:4px">${esc(e.name)}</span>
+        <span style="font-size:11px;color:#c0392b;float:right">×${esc(e.count)}</span>
+        ${e.desc ? `<div style="font-size:11px;color:#64748b;margin-top:2px">${esc(e.desc)}</div>` : ""}
+      </div>`).join("")}
+  `;
+
+  const container = document.getElementById("canvasArea");
+  container.style.position = "relative";
+  container.appendChild(picker);
+
+  picker.querySelectorAll(".picker-row").forEach(row => {
+    row.addEventListener("mouseenter", () => row.style.background = "#f1f5f9");
+    row.addEventListener("mouseleave", () => row.style.background = "");
+    row.addEventListener("click", () => {
+      picker.remove();
+      selectElem(elems[Number(row.dataset.idx)], layer);
+    });
+  });
+  picker.querySelector("#pickerClose").addEventListener("click", () => picker.remove());
+  // 点击外部关闭
+  setTimeout(() => document.addEventListener("click", function outside(ev) {
+    if (!picker.contains(ev.target)) { picker.remove(); document.removeEventListener("click", outside); }
+  }), 50);
 }
 
 function positionTooltip(event) {
