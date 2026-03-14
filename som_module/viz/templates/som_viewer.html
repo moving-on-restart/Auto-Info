@@ -510,8 +510,8 @@ function prepareData() {
     const cy =  Number(cell.y||0) * (HEX_H * 0.75);
     const nc  = { x: cell.x, y: cell.y, u_value: cell.u_value, elements: elems, cx, cy };
 
-    if (elems.length > 0) {
-      const e = elems[0];
+    // 注册节点内所有元素（BMU 模式下多元素可堆叠到同一节点）
+    elems.forEach(e => {
       nodeByElemId[e.id] = nc;
       layerSet.add(e.layer);
       if (!requirements[e.layer]) requirements[e.layer] = new Set();
@@ -525,7 +525,7 @@ function prepareData() {
         catCount++;
       }
       maxCount = Math.max(maxCount, Number(e.count || 1));
-    }
+    });
     return nc;
   });
 
@@ -595,17 +595,18 @@ function renderSOM() {
     }
     cells.forEach(cell => {
       if (!cell.elements.length) return;
-      const e = cell.elements[0];
-      if (e.layer !== cur) return;
-      prev.forEach(srcElem => {
-        const lk = linkBetween(srcElem.id, e.id);
-        if (!lk) return;
-        const srcCell = nodeByElemId[srcElem.id];
-        if (!srcCell) return;
-        activeLinks.push({ id: `${srcElem.id}-${e.id}`, source: srcCell, target: cell,
-          lift: Number(lk.lift||0), category: e.category });
-        activeDegree[srcElem.id] = (activeDegree[srcElem.id]||0) + 1;
-        activeDegree[e.id]       = (activeDegree[e.id]||0) + 1;
+      // 遍历节点内所有属于当前层的元素（BMU 模式下可能有多个）
+      cell.elements.filter(e => e.layer === cur).forEach(e => {
+        prev.forEach(srcElem => {
+          const lk = linkBetween(srcElem.id, e.id);
+          if (!lk) return;
+          const srcCell = nodeByElemId[srcElem.id];
+          if (!srcCell) return;
+          activeLinks.push({ id: `${srcElem.id}||${e.id}`, source: srcCell, target: cell,
+            lift: Number(lk.lift||0), category: e.category });
+          activeDegree[srcElem.id] = (activeDegree[srcElem.id]||0) + 1;
+          activeDegree[e.id]       = (activeDegree[e.id]||0) + 1;
+        });
       });
     });
   }
@@ -628,45 +629,62 @@ function renderSOM() {
     .attr("class", d => {
       const cls = ["hex-group"];
       if (!d.elements.length) { cls.push("dimmed"); return cls.join(" "); }
-      const e = d.elements[0];
-      const sel = selections[e.layer] || {};
-      const isSel = sel[e.category]?.id === e.id;
+      // 检查节点内所有元素，任意一个被选中即为 selected
+      const isSel = d.elements.some(e => (selections[e.layer] || {})[e.category]?.id === e.id);
       if (isSel) cls.push("selected-node");
-      if (e.layer !== cur && !isSel) cls.push("dimmed");
-      if ((activeDegree[e.id]||0) > 0 && !isSel && e.layer === cur) cls.push("highlight");
+      // 节点内没有属于当前层的元素且未被选中 → 变暗
+      const hasCurLayer = d.elements.some(e => e.layer === cur);
+      if (!hasCurLayer && !isSel) cls.push("dimmed");
+      // 任意当前层元素有跨层连线 → 高亮
+      if (!isSel && hasCurLayer) {
+        const hasHighlight = d.elements.some(e => e.layer === cur && (activeDegree[e.id]||0) > 0);
+        if (hasHighlight) cls.push("highlight");
+      }
       return cls.join(" ");
     })
     .attr("transform", d => `translate(${d.cx},${d.cy})`)
     .on("mouseover", function(event, d) {
       if (!d.elements.length) return;
-      const e = d.elements[0];
-      const deg = activeDegree[e.id] || 0;
-      const isCur = e.layer === cur;
-      tooltip.innerHTML = `
-        <div style="${!isCur ? "opacity:0.5;" : ""}">
+      const nodeIds = new Set(d.elements.map(e => e.id));
+      // 构建 tooltip：节点内每个元素一行，当前层的置顶
+      const sorted = [...d.elements].sort((a, b) => {
+        const aCur = a.layer === cur ? 0 : 1;
+        const bCur = b.layer === cur ? 0 : 1;
+        return aCur - bCur;
+      });
+      const rows = sorted.map((e, i) => {
+        const deg = activeDegree[e.id] || 0;
+        const isCur = e.layer === cur;
+        const sep = i > 0 ? "border-top:1px solid #e2e8f0;margin-top:5px;padding-top:5px;" : "";
+        return `<div style="${sep}${!isCur ? "opacity:0.5;" : ""}">
           <b style="color:${badgeColors[e.category]||'#2c3e50'}">[${esc(e.category)}]</b>&nbsp;
           <span style="font-weight:600">${esc(e.name)}</span>
           <span style="font-size:11px;color:#c0392b;font-weight:700;float:right;margin-left:8px">频次: ${esc(e.count)}</span>
-          ${e.desc ? `<br><span style="font-size:11px;color:#555;display:block;margin-top:5px">${esc(e.desc)}</span>` : ""}
-          ${deg > 0 ? `<span style="font-size:11px;color:#2980b9;display:block;margin-top:5px;font-weight:700">跨层连线: ${deg}</span>` : ""}
-          <span style="font-size:10px;color:#94a3b8;display:block;margin-top:4px">层级: ${esc(e.layer)}</span>
+          ${e.desc ? `<br><span style="font-size:11px;color:#555;display:block;margin-top:4px">${esc(e.desc)}</span>` : ""}
+          ${deg > 0 ? `<span style="font-size:11px;color:#2980b9;display:block;margin-top:4px;font-weight:700">跨层连线: ${deg}</span>` : ""}
+          <span style="font-size:10px;color:#94a3b8;display:block;margin-top:3px">层级: ${esc(e.layer)}</span>
         </div>`;
+      }).join("");
+      tooltip.innerHTML = rows;
       tooltip.style.visibility = "visible";
       const r = container.getBoundingClientRect();
       tooltip.style.left = `${event.clientX - r.left + 15}px`;
       tooltip.style.top  = `${event.clientY - r.top  + 15}px`;
 
-      if (deg > 0) {
+      const hasAnyDeg = d.elements.some(e => (activeDegree[e.id]||0) > 0);
+      if (hasAnyDeg) {
         linkLayer.selectAll(".active-link")
           .transition().duration(180)
           .attr("stroke-opacity", lk => {
-            const s = lk?.source?.elements?.[0]?.id, t = lk?.target?.elements?.[0]?.id;
-            return (s === e.id || t === e.id) ? 1 : 0.05;
+            const srcIds = new Set((lk?.source?.elements||[]).map(e => e.id));
+            const tgtIds = new Set((lk?.target?.elements||[]).map(e => e.id));
+            return [...nodeIds].some(id => srcIds.has(id) || tgtIds.has(id)) ? 1 : 0.05;
           })
           .attr("stroke-width", lk => {
             const bw = thicknessScale ? thicknessScale(Number(lk.lift||0)) : 1.5;
-            const s = lk?.source?.elements?.[0]?.id, t = lk?.target?.elements?.[0]?.id;
-            return (s === e.id || t === e.id) ? bw * 1.8 : bw;
+            const srcIds = new Set((lk?.source?.elements||[]).map(e => e.id));
+            const tgtIds = new Set((lk?.target?.elements||[]).map(e => e.id));
+            return [...nodeIds].some(id => srcIds.has(id) || tgtIds.has(id)) ? bw * 1.8 : bw;
           });
       }
     })
@@ -683,26 +701,17 @@ function renderSOM() {
         .attr("stroke-width", d => thicknessScale ? thicknessScale(Number(d.lift||0)) : 1.5);
     })
     .on("click", function(_, d) {
-      if (!d.elements.length) return;
-      const e = d.elements[0];
-      if (!cur || e.layer !== cur) return;
+      if (!d.elements.length || !cur) return;
+      // 找出节点内属于当前层的元素
+      const curElems = d.elements.filter(e => e.layer === cur);
+      if (!curElems.length) return;
 
-      if (!selections[cur]) selections[cur] = {};
-      selections[cur][e.category] = e;
-      tooltip.style.visibility = "hidden";
-
-      const req = requirements[cur] || [];
-      const got = Object.keys(selections[cur] || {});
-      if (req.length > 0 && req.every(c => got.includes(c))) {
-        if (step < phases.length - 1) {
-          step++;
-          toast(`已完成「${cur}」，进入下一层`);
-        } else if (step === phases.length - 1) {
-          step = phases.length;
-          toast("🎉 全层级装配完成！", 3500);
-        }
+      // 多个当前层元素：弹出选择器；只有一个则直接选中
+      if (curElems.length > 1) {
+        showElemPicker(d, curElems, cur);
+        return;
       }
-      render();
+      selectElem(curElems[0], cur);
     });
 
   hexGroups.append("polygon").attr("class","hex")
@@ -718,16 +727,17 @@ function renderSOM() {
   hexGroups.select(".contact-dot").transition().duration(280)
     .attr("r", d => {
       if (!d.elements.length) return 0;
-      const e = d.elements[0];
-      if (e.layer !== cur) return 0;
-      const deg = activeDegree[e.id] || 0;
+      // 取当前层中连线度最大的元素
+      const curE = d.elements.filter(e => e.layer === cur)
+        .reduce((best, e) => (activeDegree[e.id]||0) > (activeDegree[best?.id]||0) ? e : best, null);
+      if (!curE) return 0;
+      const deg = activeDegree[curE.id] || 0;
       return deg > 0 ? 2 + deg * 2 : 0;
     })
     .attr("opacity", d => {
       if (!d.elements.length) return 0;
-      const e = d.elements[0];
-      if (e.layer !== cur) return 0;
-      return (activeDegree[e.id] || 0) > 0 ? 1 : 0;
+      const curE = d.elements.find(e => e.layer === cur && (activeDegree[e.id]||0) > 0);
+      return curE ? 1 : 0;
     });
 
   // ── Auto-fit ──
@@ -743,6 +753,84 @@ function renderSOM() {
   const tx = ((vw - cw*sc)/2) - mnX*sc;
   const ty = ((vh - ch*sc)/2) - mnY*sc;
   svgRoot.call(zoomBeh.transform, d3.zoomIdentity.translate(tx, ty).scale(sc));
+
+  // ── 多元素角标（BMU 模式下节点内有多个元素时显示数量） ──
+  hexGroups.append("text").attr("class","multi-badge")
+    .attr("x", HEX_SIZE * 0.5).attr("y", -HEX_SIZE * 0.52)
+    .attr("text-anchor","middle").attr("dominant-baseline","middle")
+    .attr("font-size","8px").attr("font-weight","700")
+    .attr("fill","#c0392b").style("pointer-events","none")
+    .text(d => d.elements.length > 1 ? `×${d.elements.length}` : "");
+}
+
+// ════════════════════════════════════════════════════════════
+//  选中元素 & 多元素选择器
+// ════════════════════════════════════════════════════════════
+function selectElem(e, layer) {
+  if (!selections[layer]) selections[layer] = {};
+  selections[layer][e.category] = e;
+  document.getElementById("somTooltip").style.visibility = "hidden";
+
+  const req = requirements[layer] || [];
+  const got = Object.keys(selections[layer] || {});
+  if (req.length > 0 && req.every(c => got.includes(c))) {
+    if (step < phases.length - 1) {
+      step++;
+      toast(`已完成「${layer}」，进入下一层`);
+    } else if (step === phases.length - 1) {
+      step = phases.length;
+      toast("🎉 全层级装配完成！", 3500);
+    }
+  }
+  render();
+}
+
+function showElemPicker(cell, elems, layer) {
+  // 移除已有选择器
+  document.getElementById("elemPicker")?.remove();
+
+  const picker = document.createElement("div");
+  picker.id = "elemPicker";
+  picker.style.cssText = `
+    position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    background:#fff;border:1px solid #cbd5e1;border-radius:10px;
+    box-shadow:0 8px 32px rgba(0,0,0,0.18);padding:12px 14px;
+    z-index:9999;min-width:220px;max-width:320px;font-size:13px;
+  `;
+  picker.innerHTML = `
+    <div style="font-weight:700;color:#1e293b;margin-bottom:8px;font-size:12px;">
+      该节点含 ${elems.length} 个元素，请选择：
+      <span id="pickerClose" style="float:right;cursor:pointer;color:#94a3b8;font-size:15px;line-height:1">✕</span>
+    </div>
+    ${elems.map((e, i) => `
+      <div class="picker-row" data-idx="${i}" style="
+        padding:7px 9px;border-radius:7px;cursor:pointer;
+        border:1px solid #e2e8f0;margin-bottom:5px;
+        transition:background 0.15s;">
+        <b style="color:${badgeColors[e.category]||'#2c3e50'}">[${esc(e.category)}]</b>
+        <span style="font-weight:600;margin-left:4px">${esc(e.name)}</span>
+        <span style="font-size:11px;color:#c0392b;float:right">×${esc(e.count)}</span>
+        ${e.desc ? `<div style="font-size:11px;color:#64748b;margin-top:2px">${esc(e.desc)}</div>` : ""}
+      </div>`).join("")}
+  `;
+
+  const container = document.getElementById("canvasArea");
+  container.style.position = "relative";
+  container.appendChild(picker);
+
+  picker.querySelectorAll(".picker-row").forEach(row => {
+    row.addEventListener("mouseenter", () => row.style.background = "#f1f5f9");
+    row.addEventListener("mouseleave", () => row.style.background = "");
+    row.addEventListener("click", () => {
+      picker.remove();
+      selectElem(elems[Number(row.dataset.idx)], layer);
+    });
+  });
+  picker.querySelector("#pickerClose").addEventListener("click", () => picker.remove());
+  // 点击外部关闭
+  setTimeout(() => document.addEventListener("click", function outside(ev) {
+    if (!picker.contains(ev.target)) { picker.remove(); document.removeEventListener("click", outside); }
+  }), 50);
 }
 
 // ════════════════════════════════════════════════════════════
