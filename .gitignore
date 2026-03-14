@@ -6,3 +6,6 @@ services\my_images
 .env
 services\.env
 data_agent_project\config\.env
+__pycache__/
+*.pyc
+*.pyo
