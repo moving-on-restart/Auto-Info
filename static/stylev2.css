@@ -397,7 +397,7 @@
         }
 
         #designSankeySchemeLabel {
-            color: #4f46e5;
+            color: #334155;
             font-family: 'JetBrains Mono', monospace;
             font-weight: 600;
         }
@@ -430,7 +430,7 @@
             position: relative;
             overflow: hidden;
             padding: 6px;
-            background: #FAFBFD;
+            background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
             display: flex;
             align-items: stretch;
         }
@@ -451,6 +451,24 @@
             padding-bottom: 5px;
         }
 
+        #designSelectionSummary .summary-scheme-row {
+            margin-bottom: 7px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        #designSelectionSummary .summary-pending-flag {
+            display: inline-block;
+            margin-left: 6px;
+            padding: 1px 6px;
+            border-radius: 999px;
+            border: 1px solid #cbd5e1;
+            background: #f1f5f9;
+            color: #475569;
+            font-size: 9px;
+            font-weight: 600;
+        }
+
         #designSelectionSummary .data-value {
             font-size: 10.5px;
         }
@@ -460,12 +478,12 @@
             position: absolute;
             pointer-events: none;
             z-index: 999;
-            background: rgba(30, 34, 44, 0.88);
-            color: #f0f2f5;
-            font-size: 11px;
+            background: rgba(15, 23, 42, 0.92);
+            color: #e2e8f0;
+            font-size: 10.5px;
             font-weight: 500;
-            line-height: 1.5;
-            padding: 5px 9px;
+            line-height: 1.45;
+            padding: 7px 9px;
             border-radius: 6px;
             white-space: nowrap;
             box-shadow: 0 4px 16px rgba(0,0,0,0.18);
@@ -473,11 +491,21 @@
             max-width: 200px;
             white-space: normal;
             word-break: break-all;
+            border: 1px solid rgba(148, 163, 184, 0.28);
+        }
+        .sankey-node-tooltip .tooltip-title {
+            color: #f8fafc;
+            font-weight: 700;
+            margin-bottom: 2px;
         }
         .sankey-node-tooltip .tooltip-type {
             font-size: 9px;
-            color: #a0a8b8;
-            margin-top: 2px;
+            color: #93c5fd;
+            margin-bottom: 2px;
+        }
+        .sankey-node-tooltip .tooltip-meta {
+            font-size: 9px;
+            color: #cbd5e1;
         }
 
         /* --- 中间视图区 (Center Viewport) --- */
@@ -1332,23 +1360,24 @@
             pointer-events: none;
             letter-spacing: 0.4px;
             font-family: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+            fill: #334155;
         }
 
         /* ── Links — smooth, wide, academic-style flows ── */
         .sankey-link {
             fill: none;
             stroke-linecap: round;
-            stroke-opacity: 0.50;
-            transition: stroke-opacity 0.25s ease, filter 0.25s ease;
+            stroke-opacity: 0.38;
+            transition: stroke-opacity 0.2s ease, filter 0.2s ease;
         }
 
         .sankey-link.is-path {
-            stroke-opacity: 0.82;
-            filter: saturate(130%) brightness(1.02);
+            stroke-opacity: 0.86;
+            filter: saturate(110%) brightness(0.98);
         }
 
         .sankey-link.is-dim {
-            stroke-opacity: 0.04;
+            stroke-opacity: 0.06;
         }
 
         /* ── Nodes — clean rounded rectangles ── */
@@ -1357,7 +1386,7 @@
             pointer-events: all;
             transition: opacity 0.25s ease, stroke-width 0.25s ease,
                 filter 0.25s ease, fill-opacity 0.25s ease;
-            filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.08));
+            filter: drop-shadow(0 1px 2px rgba(15, 23, 42, 0.12));
         }
 
         .sankey-node.is-editable {
@@ -1365,9 +1394,9 @@
         }
 
         .sankey-node.is-editable:hover .sankey-node-shape {
-            stroke-width: 1px;
-            stroke: rgba(0, 0, 0, 0.12);
-            filter: brightness(0.97) drop-shadow(0 2px 5px rgba(0, 0, 0, 0.1));
+            stroke-width: 1.1px;
+            stroke: rgba(15, 23, 42, 0.32);
+            filter: brightness(0.96) drop-shadow(0 2px 4px rgba(15, 23, 42, 0.16));
         }
 
         .sankey-node.is-readonly {
@@ -1378,12 +1407,12 @@
         .sankey-node.is-path .sankey-node-shape {
             opacity: 1;
             stroke-width: 1px;
-            filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.12));
+            filter: drop-shadow(0 1px 3px rgba(15, 23, 42, 0.14));
         }
 
         .sankey-node.is-dim .sankey-node-shape {
-            opacity: 0.15;
-            filter: grayscale(80%);
+            opacity: 0.22;
+            filter: grayscale(60%);
         }
 
         /* ── Pencil edit icon ── */

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os
 import base64
 import time
@@ -227,7 +228,7 @@ if __name__ == "__main__":
     service = GeminiLangChainService(output_dir="my_images")
 
     print(f"--- 测试调用 ({service.model_name}) ---")
-    test_prompt = "A cute cyberpunk cat sitting on a neon rooftop"
+    test_prompt = "阶段一：统计特征提取与语义分析】输入流：图表数值序列、查询文本。核心模块：统计特征提取（分布、趋势 r_trend、波动 v_score、极端值、稀疏度、衰减评分）；语义特征提取（规则匹配与 LLM 双通道）；语义锚点构建（主题、关系、实体、焦点）。输出流向：多维信息特征。【阶段二：情感向量映射与色彩属性合成】输入流：多维信息特征。核心模块：三维情感向量映射 E=(v, a, t)（效价、唤醒度、色温）；五维色彩属性合成 C_attr（色相范围、饱和度、明度、对比度、色温倾向）。输出流向：视觉场景引导参数。【阶段三：参考图像生成与目标区域分割】输入流：视觉场景引导参数。核心模块：场景提示词构造；文本到图像生成；目标像素提取（GroundingDINO+SAM 区域模式或全图模式）。输出流向：目标像素集合。【阶段四：基于 Moon-Spencer 理论的和谐调色板优化】输入流：目标像素集合。核心模块：感知色彩空间聚类（CIELAB + K-Means）；组合寻优搜索；Moon-Spencer 和谐度量（M=O/C）。输出：最优色彩组合。//上述为图参考结构,但不要选择所有文字加入。能否参考示例图片生成合适论文附图，注意图片简洁，我将图片用在学术论文中,使用中文"
 
     # 1. 测试新模型 (Gemini 3 Pro)
     img_path = service.generate(test_prompt, aspect_ratio="16:9")

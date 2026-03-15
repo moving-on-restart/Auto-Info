@@ -98,9 +98,10 @@ const FORCE_SAMPLE_COUNT_FALLBACK_MAX = 150;
 let colorScale = null;
 let graphLinkWeightCache = null;
 let graphLinkWeightCacheRef = null;
+const graphLinkWeightCacheByGraph = new WeakMap();
 
 const SANKEY_COLUMN_COUNT = 6;
-const SANKEY_MAX_FLOW_WIDTH = 5;
+const SANKEY_MAX_FLOW_WIDTH = 4;
 const SANKEY_COLUMN_TITLES = [
     "洞察(Insight)",
     "底层(Bottom)",
@@ -110,12 +111,12 @@ const SANKEY_COLUMN_TITLES = [
     "输出(Output)",
 ];
 const SANKEY_COLUMN_COLORS = {
-    0: "#7EA6F0",   // Insight  — soft blue
-    1: "#F2B07B",   // Bottom   — soft peach/orange
-    2: "#E89AC0",   // Middle   — soft pink
-    3: "#8CCB90",   // Top      — soft green
-    4: "#C0A2E8",   // Palette  — soft lavender
-    5: "#7ECFCF",   // Output   — soft teal
+    0: "#4E79A7",   // Insight
+    1: "#9C755F",   // Bottom
+    2: "#76B7B2",   // Middle
+    3: "#59A14F",   // Top
+    4: "#8A8FA3",   // Palette
+    5: "#577590",   // Output
 };
 
 function getColorScale() {
@@ -427,6 +428,8 @@ function prepareSomSelectionData() {
         maxCount,
     };
 
+    // Freeze the currently active graph onto existing gallery items before replacing it.
+    snapshotCurrentGraphForExistingGalleryItems();
     fullGraphData = {
         nodes: elementNodes,
         links: links.map((link) => ({
@@ -1486,15 +1489,17 @@ function buildFinalSelectionsFromGraph() {
     return finalSelections;
 }
 
-function renderDesignSummary() {
+function renderDesignSummary(options = {}) {
+    const skipSankey = Boolean(options.skipSankey);
     const container = document.getElementById("designSelectionSummary");
     if (!container) return;
 
-    if (!fullGraphData) {
+    const activeItem = getActiveGalleryItem();
+    if (!fullGraphData && !activeItem) {
         container.innerHTML = graphLayoutMode === "som"
             ? '<div class="center-msg">Build SOM graph and select nodes first</div>'
             : '<div class="center-msg">Build force graph and select nodes first</div>';
-        if (isDesignTabActive()) {
+        if (isDesignTabActive() && !skipSankey) {
             requestAnimationFrame(() => {
                 renderDesignSankey();
             });
@@ -1502,15 +1507,42 @@ function renderDesignSummary() {
         return;
     }
 
-    const selectionMap = buildSelectionMaps();
-
     const layerLabel = {
         bottom_layer: "Bottom Layer",
         middle_layer: "Middle Layer",
         top_layer: "Top Layer",
     };
 
+    const baseSelections = activeItem
+        ? getGalleryWorkingSelections(activeItem)
+        : buildFinalSelectionsFromGraph();
+
+    const selectionMap = {
+        bottom_layer: (baseSelections && typeof baseSelections.bottom_layer === "object" && baseSelections.bottom_layer) || {},
+        middle_layer: (baseSelections && typeof baseSelections.middle_layer === "object" && baseSelections.middle_layer) || {},
+        top_layer: (baseSelections && typeof baseSelections.top_layer === "object" && baseSelections.top_layer) || {},
+    };
+
+    const summaryContext = activeItem
+        ? getAnalysisContextForGalleryItem(activeItem)
+        : { paletteMeta: selectedPaletteMeta };
+    const summaryPaletteMeta =
+        normalizePalettePayload(summaryContext.paletteMeta) ||
+        normalizePalettePayload(selectionMap?.middle_layer?.color_scheme);
+
     let html = "";
+    if (activeItem) {
+        const schemeNumber = galleryData.length - activeGalleryIndex;
+        const pendingTag = activeItem.isPendingRegenerate
+            ? '<span class="summary-pending-flag">Pending Regenerate</span>'
+            : "";
+        html += `
+        <div class="summary-scheme-row">
+            <div class="data-label">Active Infographic</div>
+            <div class="data-value"><b>Scheme ${schemeNumber}</b>${pendingTag}</div>
+        </div>`;
+    }
+
     layerOrder.forEach((layer) => {
         const groups = selectionMap[layer] || {};
         html += `<div class="data-row"><div class="data-label">${layerLabel[layer]}</div>`;
@@ -1520,14 +1552,15 @@ function renderDesignSummary() {
             return;
         }
 
-        Object.values(groups).forEach((node) => {
-            html += `<div class="data-value" style="margin-bottom:4px;">${node.group}: <b>${node.name}</b></div>`;
+        Object.entries(groups).forEach(([groupId, selectedValue]) => {
+            const displayName = getSelectionDisplayName(groupId, selectedValue);
+            html += `<div class="data-value" style="margin-bottom:4px;">${escapeHtml(groupId)}: <b>${escapeHtml(displayName)}</b></div>`;
         });
         html += `</div>`;
     });
 
-    if (selectedPaletteMeta && Array.isArray(selectedPaletteMeta.palette)) {
-        const hexText = selectedPaletteMeta.palette
+    if (summaryPaletteMeta && Array.isArray(summaryPaletteMeta.palette)) {
+        const hexText = summaryPaletteMeta.palette
             .slice(0, 5)
             .map(toHexColor)
             .filter(Boolean)
@@ -1535,13 +1568,13 @@ function renderDesignSummary() {
         html += `
         <div class="data-row">
             <div class="data-label">Selected Extracted Palette</div>
-            <div class="data-value">${selectedPaletteMeta.label || "Palette"}</div>
+            <div class="data-value">${escapeHtml(summaryPaletteMeta.label || "Palette")}</div>
             <div class="data-value" style="color:#059669;">${hexText || "N/A"}</div>
         </div>`;
     }
 
     container.innerHTML = html;
-    if (isDesignTabActive()) {
+    if (isDesignTabActive() && !skipSankey) {
         requestAnimationFrame(() => {
             renderDesignSankey();
         });
@@ -2149,6 +2182,13 @@ function getSankeyLinkKey(sourceId, targetId) {
     return `${sourceId}=>${targetId}`;
 }
 
+function getActiveGalleryItem() {
+    if (!Array.isArray(galleryData) || !galleryData.length) return null;
+    if (activeGalleryIndex >= galleryData.length) activeGalleryIndex = galleryData.length - 1;
+    if (activeGalleryIndex < 0) activeGalleryIndex = 0;
+    return galleryData[activeGalleryIndex] || null;
+}
+
 function getGalleryWorkingSelections(galleryItem) {
     return deepClone(galleryItem?.pendingSelections || galleryItem?.selections || {
         bottom_layer: {},
@@ -2185,14 +2225,38 @@ function getSelectionDisplayName(groupId, value) {
     return value.label || value.name || value.value || value.text || value.content || JSON.stringify(value);
 }
 
-function getGraphLinkWeightLookup() {
-    if (!fullGraphData || !Array.isArray(fullGraphData.links)) return new Map();
-    if (graphLinkWeightCache && graphLinkWeightCacheRef === fullGraphData) {
-        return graphLinkWeightCache;
+function getGraphDataForGalleryItem(galleryItem) {
+    const snapGraph = galleryItem?.analysisSnapshot?.graphData;
+    if (snapGraph && Array.isArray(snapGraph.nodes) && Array.isArray(snapGraph.links)) {
+        return snapGraph;
+    }
+    if (fullGraphData && Array.isArray(fullGraphData.nodes) && Array.isArray(fullGraphData.links)) {
+        return fullGraphData;
+    }
+    return { nodes: [], links: [] };
+}
+
+function snapshotCurrentGraphForExistingGalleryItems() {
+    if (!fullGraphData || !Array.isArray(fullGraphData.nodes) || !Array.isArray(fullGraphData.links)) return;
+    galleryData.forEach((item) => {
+        if (!item || typeof item !== "object") return;
+        if (!item.analysisSnapshot || typeof item.analysisSnapshot !== "object") {
+            item.analysisSnapshot = {};
+        }
+        if (!item.analysisSnapshot.graphData) {
+            item.analysisSnapshot.graphData = deepClone(fullGraphData);
+        }
+    });
+}
+
+function getGraphLinkWeightLookup(graphData = fullGraphData) {
+    if (!graphData || !Array.isArray(graphData.links)) return new Map();
+    if (graphLinkWeightCacheByGraph.has(graphData)) {
+        return graphLinkWeightCacheByGraph.get(graphData);
     }
 
     const map = new Map();
-    fullGraphData.links.forEach((link) => {
+    graphData.links.forEach((link) => {
         const sourceId = getSourceId(link);
         const targetId = getTargetId(link);
         if (!sourceId || !targetId) return;
@@ -2215,13 +2279,16 @@ function getGraphLinkWeightLookup() {
         }
     });
 
-    graphLinkWeightCache = map;
-    graphLinkWeightCacheRef = fullGraphData;
+    graphLinkWeightCacheByGraph.set(graphData, map);
+    if (graphData === fullGraphData) {
+        graphLinkWeightCache = map;
+        graphLinkWeightCacheRef = fullGraphData;
+    }
     return map;
 }
 
-function getStrengthFromIds(sourceIds, targetIds) {
-    const lookup = getGraphLinkWeightLookup();
+function getStrengthFromIds(sourceIds, targetIds, graphData = fullGraphData) {
+    const lookup = getGraphLinkWeightLookup(graphData);
     let best = null;
 
     sourceIds.forEach((sourceId) => {
@@ -2238,9 +2305,9 @@ function getStrengthFromIds(sourceIds, targetIds) {
     return best;
 }
 
-function getGraphCandidates(layer, groupId) {
-    if (!fullGraphData || !Array.isArray(fullGraphData.nodes)) return [];
-    return fullGraphData.nodes.filter((node) => node.layer === layer && node.group_id === groupId);
+function getGraphCandidates(layer, groupId, graphData = fullGraphData) {
+    if (!graphData || !Array.isArray(graphData.nodes)) return [];
+    return graphData.nodes.filter((node) => node.layer === layer && node.group_id === groupId);
 }
 
 function makeAlternativeFromGraphNode(node, layerHint, groupHint) {
@@ -2268,18 +2335,18 @@ function makeAlternativeFromGraphNode(node, layerHint, groupHint) {
     return alt;
 }
 
-function getAlternativesForNode(layer, groupId, excludeId) {
-    return getGraphCandidates(layer, groupId)
+function getAlternativesForNode(layer, groupId, excludeId, graphData = fullGraphData) {
+    return getGraphCandidates(layer, groupId, graphData)
         .filter((node) => String(node.id) !== String(excludeId))
         .sort((a, b) => (Number(b.val || b.count || 0) - Number(a.val || a.count || 0)))
         .slice(0, 6)
         .map((node) => makeAlternativeFromGraphNode(node, layer, groupId));
 }
 
-function getPaletteAlternatives(excludeId) {
+function getPaletteAlternatives(excludeId, graphData = fullGraphData) {
     const alternatives = [];
 
-    (fullGraphData?.nodes || [])
+    (graphData?.nodes || [])
         .filter((node) => node.is_palette_node || node.group_id === "color_scheme")
         .forEach((node) => {
             if (String(node.id) === String(excludeId)) return;
@@ -2320,8 +2387,8 @@ function getPaletteAlternatives(excludeId) {
     return Array.from(unique.values()).slice(0, 8);
 }
 
-function findGraphNodeMatch(layer, groupId, selectedValue, displayName) {
-    const candidates = getGraphCandidates(layer, groupId);
+function findGraphNodeMatch(layer, groupId, selectedValue, displayName, graphData = fullGraphData) {
+    const candidates = getGraphCandidates(layer, groupId, graphData);
     if (!candidates.length) return null;
 
     const targets = new Set([
@@ -2489,6 +2556,7 @@ function repairIsolatedSankeyNodes(nodes, links) {
 
 function buildSankeyData(galleryItem, analysisContext = {}) {
     const selections = getGalleryWorkingSelections(galleryItem) || {};
+    const graphData = getGraphDataForGalleryItem(galleryItem);
     const nodes = [];
     const links = [];
     const nodeMap = new Map();
@@ -2573,14 +2641,14 @@ function buildSankeyData(galleryItem, analysisContext = {}) {
         const built = [];
         Object.entries(layerData).forEach(([groupId, selectedValue]) => {
             const displayName = getSelectionDisplayName(groupId, selectedValue);
-            const matchedGraph = findGraphNodeMatch(layer, groupId, selectedValue, displayName);
+            const matchedGraph = findGraphNodeMatch(layer, groupId, selectedValue, displayName, graphData);
             const payload = (selectedValue && typeof selectedValue === "object")
                 ? deepClone(selectedValue)
                 : (matchedGraph?.option_payload && typeof matchedGraph.option_payload === "object"
                     ? deepClone(matchedGraph.option_payload)
                     : {});
             const nodeId = matchedGraph?.id || getSankeySafeId([layer, groupId, displayName]);
-            const alternatives = getAlternativesForNode(layer, groupId, nodeId);
+            const alternatives = getAlternativesForNode(layer, groupId, nodeId, graphData);
 
             const node = addNode({
                 id: nodeId,
@@ -2634,7 +2702,7 @@ function buildSankeyData(galleryItem, analysisContext = {}) {
             isEditable: true,
             isActive: true,
             payload: palettePayload || {},
-            alternatives: getPaletteAlternatives(paletteId),
+            alternatives: getPaletteAlternatives(paletteId, graphData),
             graphRefId: colorSchemeNode?.graphRefId || colorSchemeNode?.id || "",
         });
     }
@@ -2668,25 +2736,130 @@ function buildSankeyData(galleryItem, analysisContext = {}) {
         return Array.from(new Set(ids));
     };
 
+    let bottomToMiddleLinks = 0;
     bottomNodes.forEach((bottomNode) => {
         middleNodes.forEach((middleNode) => {
-            const strength = getStrengthFromIds(getNodeGraphIds(bottomNode), getNodeGraphIds(middleNode));
+            const strength = getStrengthFromIds(
+                getNodeGraphIds(bottomNode),
+                getNodeGraphIds(middleNode),
+                graphData
+            );
             if (!Number.isFinite(strength) || strength <= 0) return;
             const s = Math.max(0, Math.min(1, Number(strength)));
             const flowValue = Math.max(1, Math.round(1 + (s * 10)));
             addLink(bottomNode.id, middleNode.id, flowValue, s);
+            bottomToMiddleLinks += 1;
         });
     });
 
+    let middleToTopLinks = 0;
     middleNodes.forEach((middleNode) => {
         topNodes.forEach((topNode) => {
-            const strength = getStrengthFromIds(getNodeGraphIds(middleNode), getNodeGraphIds(topNode));
+            const strength = getStrengthFromIds(
+                getNodeGraphIds(middleNode),
+                getNodeGraphIds(topNode),
+                graphData
+            );
             if (!Number.isFinite(strength) || strength <= 0) return;
             const s = Math.max(0, Math.min(1, Number(strength)));
             const flowValue = Math.max(1, Math.round(1 + (s * 10)));
             addLink(middleNode.id, topNode.id, flowValue, s);
+            middleToTopLinks += 1;
         });
     });
+
+    const ensureAdjacentConnectivity = (sourceNodes, targetNodes, fallbackStrength = 0.18) => {
+        if (!sourceNodes.length || !targetNodes.length) return;
+        const sourceIds = new Set(sourceNodes.map((node) => node.id));
+        const targetIds = new Set(targetNodes.map((node) => node.id));
+        const outgoing = new Map(sourceNodes.map((node) => [node.id, 0]));
+        const incoming = new Map(targetNodes.map((node) => [node.id, 0]));
+
+        links.forEach((link) => {
+            const sourceId = String(link.source || "");
+            const targetId = String(link.target || "");
+            if (!sourceIds.has(sourceId) || !targetIds.has(targetId)) return;
+            outgoing.set(sourceId, (outgoing.get(sourceId) || 0) + 1);
+            incoming.set(targetId, (incoming.get(targetId) || 0) + 1);
+        });
+
+        const pickBestTargetForSource = (sourceNode) => {
+            let bestTarget = null;
+            let bestStrength = null;
+            const sourceGraphIds = getNodeGraphIds(sourceNode);
+            targetNodes.forEach((targetNode) => {
+                const strength = getStrengthFromIds(sourceGraphIds, getNodeGraphIds(targetNode), graphData);
+                if (!Number.isFinite(strength)) return;
+                if (bestStrength === null || strength > bestStrength) {
+                    bestStrength = strength;
+                    bestTarget = targetNode;
+                }
+            });
+            return {
+                target: bestTarget || targetNodes[0],
+                strength: Number.isFinite(bestStrength) && bestStrength > 0
+                    ? Math.max(0, Math.min(1, Number(bestStrength)))
+                    : fallbackStrength,
+            };
+        };
+
+        const pickBestSourceForTarget = (targetNode) => {
+            let bestSource = null;
+            let bestStrength = null;
+            const targetGraphIds = getNodeGraphIds(targetNode);
+            sourceNodes.forEach((sourceNode) => {
+                const strength = getStrengthFromIds(getNodeGraphIds(sourceNode), targetGraphIds, graphData);
+                if (!Number.isFinite(strength)) return;
+                if (bestStrength === null || strength > bestStrength) {
+                    bestStrength = strength;
+                    bestSource = sourceNode;
+                }
+            });
+            return {
+                source: bestSource || sourceNodes[0],
+                strength: Number.isFinite(bestStrength) && bestStrength > 0
+                    ? Math.max(0, Math.min(1, Number(bestStrength)))
+                    : fallbackStrength,
+            };
+        };
+
+        sourceNodes.forEach((sourceNode) => {
+            if ((outgoing.get(sourceNode.id) || 0) > 0) return;
+            const picked = pickBestTargetForSource(sourceNode);
+            if (!picked.target) return;
+            const flowValue = Math.max(1, Math.round(1 + picked.strength * 6));
+            addLink(sourceNode.id, picked.target.id, flowValue, picked.strength);
+            outgoing.set(sourceNode.id, (outgoing.get(sourceNode.id) || 0) + 1);
+            incoming.set(picked.target.id, (incoming.get(picked.target.id) || 0) + 1);
+        });
+
+        targetNodes.forEach((targetNode) => {
+            if ((incoming.get(targetNode.id) || 0) > 0) return;
+            const picked = pickBestSourceForTarget(targetNode);
+            if (!picked.source) return;
+            const flowValue = Math.max(1, Math.round(1 + picked.strength * 6));
+            addLink(picked.source.id, targetNode.id, flowValue, picked.strength);
+            outgoing.set(picked.source.id, (outgoing.get(picked.source.id) || 0) + 1);
+            incoming.set(targetNode.id, (incoming.get(targetNode.id) || 0) + 1);
+        });
+    };
+
+    if (bottomToMiddleLinks === 0 && bottomNodes.length && middleNodes.length) {
+        bottomNodes.forEach((bottomNode) => {
+            middleNodes.forEach((middleNode) => {
+                addLink(bottomNode.id, middleNode.id, 1, 0.16);
+            });
+        });
+    }
+    if (middleToTopLinks === 0 && middleNodes.length && topNodes.length) {
+        middleNodes.forEach((middleNode) => {
+            topNodes.forEach((topNode) => {
+                addLink(middleNode.id, topNode.id, 1, 0.16);
+            });
+        });
+    }
+    ensureAdjacentConnectivity(bottomNodes, middleNodes, 0.16);
+    ensureAdjacentConnectivity(middleNodes, topNodes, 0.16);
 
     if (colorSchemeNode && paletteNode) {
         addLink(colorSchemeNode.id, paletteNode.id, 1, 1);
@@ -2706,6 +2879,7 @@ function buildSankeyData(galleryItem, analysisContext = {}) {
         nodes,
         links,
         selections,
+        graphData,
         isAggregate: false,
     };
 }
@@ -2951,13 +3125,13 @@ function mountSankeyFloatingPanel(containerElement, panelEl, event) {
     };
 }
 
-function computeAlternativeCompatibility(altNode, otherSelectedNodes) {
+function computeAlternativeCompatibility(altNode, otherSelectedNodes, graphData = fullGraphData) {
     const sourceIds = [altNode.graphRefId, altNode.id].filter(Boolean);
     let score = 0;
 
     otherSelectedNodes.forEach((otherNode) => {
         const targetIds = [otherNode.graphRefId, otherNode.id].filter(Boolean);
-        const strength = getStrengthFromIds(sourceIds, targetIds);
+        const strength = getStrengthFromIds(sourceIds, targetIds, graphData);
         if (Number.isFinite(strength)) score += strength;
     });
 
@@ -3022,6 +3196,9 @@ function replaceNodeAndRegenerate(oldNode, newNode, galleryItem, context = {}) {
 
     if (!galleryItem.analysisSnapshot) {
         galleryItem.analysisSnapshot = getAnalysisContextForGalleryItem(galleryItem);
+    }
+    if (!galleryItem.analysisSnapshot.graphData && fullGraphData) {
+        galleryItem.analysisSnapshot.graphData = deepClone(fullGraphData);
     }
     if (oldNode.nodeType === "palette") {
         const palettePayload = normalizePalettePayload(newNode.payload || {}, newNode.name);
@@ -3169,7 +3346,8 @@ function editPaletteNode(paletteNode, event, context) {
         refreshHarmony();
     };
 
-    const presets = getPaletteAlternatives(paletteNode.id);
+    const graphData = context.graphData || getGraphDataForGalleryItem(context.galleryItem);
+    const presets = getPaletteAlternatives(paletteNode.id, graphData);
     if (!presets.length) {
         const empty = document.createElement("div");
         empty.className = "sankey-empty-text";
@@ -3230,10 +3408,11 @@ function editPaletteNode(paletteNode, event, context) {
 function showAlternativesPanel(clickedNode, event, context) {
     const containerElement = context.containerElement;
     if (!containerElement) return;
+    const graphData = context.graphData || getGraphDataForGalleryItem(context.galleryItem);
 
     let alternatives = Array.isArray(clickedNode.alternatives) ? [...clickedNode.alternatives] : [];
     if (!alternatives.length) {
-        alternatives = getAlternativesForNode(clickedNode.layer, clickedNode.groupId, clickedNode.id);
+        alternatives = getAlternativesForNode(clickedNode.layer, clickedNode.groupId, clickedNode.id, graphData);
     }
     if (!alternatives.length) {
         const panel = document.createElement("div");
@@ -3248,7 +3427,7 @@ function showAlternativesPanel(clickedNode, event, context) {
 
     const otherSelectedNodes = (context.sankeyData?.nodes || []).filter((node) => node.id !== clickedNode.id);
     alternatives.forEach((alt) => {
-        alt.compatibilityScore = computeAlternativeCompatibility(alt, otherSelectedNodes);
+        alt.compatibilityScore = computeAlternativeCompatibility(alt, otherSelectedNodes, graphData);
     });
     alternatives.sort((a, b) => Number(b.compatibilityScore || 0) - Number(a.compatibilityScore || 0));
 
@@ -3408,7 +3587,7 @@ function renderSankeyDiagram(
     svg.append("rect")
         .attr("width", viewW)
         .attr("height", viewH)
-        .attr("fill", "#FCFCFD")
+        .attr("fill", "#F8FAFC")
         .attr("rx", 4);
 
     const root = svg.append("g").attr("class", "sankey-scene");
@@ -3491,8 +3670,8 @@ function renderSankeyDiagram(
         0.85,
         Math.min(1.6, Math.min(viewW, viewH) / 400)
     );
-    const flowMin = 2.5 * vScale;
-    const flowMax = 20 * vScale;
+    const flowMin = 1.8 * vScale;
+    const flowMax = 12 * vScale;
 
     function adaptiveFlowWidth(link) {
         const raw = Number(link.width || link.value || 1);
@@ -3523,8 +3702,8 @@ function renderSankeyDiagram(
             link.source?.color || getSankeyColumnColor(srcCol, link.source?.payload);
         const tgtColor =
             link.target?.color || getSankeyColumnColor(tgtCol, link.target?.payload);
-        const srcSoft = softenHexColor(srcColor, 0.32);
-        const tgtSoft = softenHexColor(tgtColor, 0.32);
+        const srcSoft = softenHexColor(srcColor, 0.42);
+        const tgtSoft = softenHexColor(tgtColor, 0.42);
 
         const gid = `sankey-vgrad-${galleryItem?.id || "agg"}-${idx}`;
         link._gradientId = gid;
@@ -3543,11 +3722,11 @@ function renderSankeyDiagram(
         grad.append("stop")
             .attr("offset", "0%")
             .attr("stop-color", srcSoft)
-            .attr("stop-opacity", 0.72);
+            .attr("stop-opacity", 0.62);
         grad.append("stop")
             .attr("offset", "100%")
             .attr("stop-color", tgtSoft)
-            .attr("stop-opacity", 0.72);
+            .attr("stop-opacity", 0.62);
     });
 
     // ── Column background bands & titles ──
@@ -3578,7 +3757,7 @@ function renderSankeyDiagram(
             .attr("width", globalMaxVx - globalMinVx + 20)
             .attr("height", info.maxVy - info.minVy + bandPad * 2)
             .attr("fill", bandColor)
-            .attr("fill-opacity", 0.06)
+            .attr("fill-opacity", 0.045)
             .attr("rx", 4)
             .attr("ry", 4);
     });
@@ -3591,7 +3770,7 @@ function renderSankeyDiagram(
     Object.entries(colInfo).forEach(([colStr, info]) => {
         const col = Number(colStr);
         const fullTitle = SANKEY_COLUMN_TITLES[col] || `Col ${col}`;
-        const title = fullTitle.split("(")[0].trim();
+        const title = `${col + 1}. ${fullTitle.split("(")[0].trim()}`;
         const labelColor = SANKEY_COLUMN_COLORS[col] || "#8a8f99";
         titleLayer
             .append("text")
@@ -3603,7 +3782,7 @@ function renderSankeyDiagram(
             .attr("font-size", "10px")
             .attr("font-weight", "700")
             .attr("letter-spacing", "0.5px")
-            .attr("opacity", 0.85)
+            .attr("opacity", 0.9)
             .text(title);
     });
 
@@ -3617,7 +3796,7 @@ function renderSankeyDiagram(
         .attr("class", "sankey-link")
         .attr("d", verticalSankeyLinkPath)
         .attr("stroke", (d) => `url(#${d._gradientId})`)
-        .attr("stroke-opacity", 0.55)
+        .attr("stroke-opacity", 0.46)
         .attr("stroke-width", (d) => adaptiveFlowWidth(d))
         .attr("stroke-linecap", "round");
 
@@ -3672,6 +3851,7 @@ function renderSankeyDiagram(
                 analysisContext,
                 sankeyData: sankeyLayout,
                 containerElement,
+                graphData: sankeySource.graphData || getGraphDataForGalleryItem(galleryItem),
             };
             if (node.nodeType === "palette") {
                 editPaletteNode(node, event, ctx);
@@ -3699,9 +3879,9 @@ function renderSankeyDiagram(
                     d.payload
                 )
         )
-        .attr("fill-opacity", 0.88)
-        .attr("stroke", "rgba(255,255,255,0.5)")
-        .attr("stroke-width", 0.6)
+        .attr("fill-opacity", 0.82)
+        .attr("stroke", "rgba(31,41,55,0.22)")
+        .attr("stroke-width", 0.7)
         .classed(
             "sankey-output-pending",
             (d) =>
@@ -3759,9 +3939,32 @@ function renderSankeyDiagram(
 
         el.on("mouseenter.tooltip", (event, datum) => {
             const typeLabel = typeLabels[datum.nodeType] || datum.nodeType || "";
+            const layerLabelMap = {
+                bottom_layer: "Bottom Layer",
+                middle_layer: "Middle Layer",
+                top_layer: "Top Layer",
+                data_insight: "Insight",
+                palette: "Palette",
+                output: "Output",
+            };
+            const layerLabel = layerLabelMap[String(datum.layer || "")] || String(datum.layer || "");
+            const groupText = datum.groupId ? `<div class="tooltip-meta">Group: ${escapeHtml(datum.groupId)}</div>` : "";
+            const layerText = layerLabel ? `<div class="tooltip-meta">Layer: ${escapeHtml(layerLabel)}</div>` : "";
+            const numericValue = Number(datum.value);
+            const valueText = Number.isFinite(numericValue)
+                ? `<div class="tooltip-meta">Weight: ${Number.isInteger(numericValue) ? numericValue : numericValue.toFixed(2)}</div>`
+                : "";
+            const harmonyRaw = Number(datum?.payload?.harmony_score);
+            const harmonyText = Number.isFinite(harmonyRaw)
+                ? `<div class="tooltip-meta">Harmony: ${harmonyRaw.toFixed(3)}</div>`
+                : "";
             tooltipEl.innerHTML =
-                `<div>${datum.name}</div>` +
-                (typeLabel ? `<div class="tooltip-type">${typeLabel}</div>` : "");
+                `<div class="tooltip-title">${escapeHtml(datum.name)}</div>` +
+                (typeLabel ? `<div class="tooltip-type">${escapeHtml(typeLabel)}</div>` : "") +
+                groupText +
+                layerText +
+                valueText +
+                harmonyText;
             tooltipEl.style.display = "block";
         });
         el.on("mouseleave.tooltip", () => {
@@ -3792,6 +3995,7 @@ function renderGalleryUI() {
         viewContainer.innerHTML = '<div class="center-msg">Generated infographics will appear here</div>';
         const designActionsEl = document.getElementById("designGalleryActions");
         if (designActionsEl) designActionsEl.innerHTML = "";
+        renderDesignSummary({ skipSankey: true });
         if (isDesignTabActive()) {
             requestAnimationFrame(() => {
                 renderDesignSankey();
@@ -3838,6 +4042,8 @@ function renderGalleryUI() {
             (canRegenerate ? `<button class="gallery-action-btn" onclick="revertGalleryPending(${activeGalleryIndex})">Undo</button>` : "");
     }
 
+    renderDesignSummary({ skipSankey: true });
+
     if (isDesignTabActive()) {
         requestAnimationFrame(() => {
             renderDesignSankey();
@@ -3860,6 +4066,7 @@ function addToGallery(imgUrl, usedSelections) {
             analysisAnswer: currentAnalysisAnswer || "",
             chartData: currentChartData ? deepClone(currentChartData) : null,
             paletteMeta: selectedPaletteMeta ? deepClone(selectedPaletteMeta) : null,
+            graphData: fullGraphData ? deepClone(fullGraphData) : null,
         },
     });
 
@@ -4073,6 +4280,7 @@ async function restoreSession() {
         // Restore gallery
         if (Array.isArray(s.gallery_data) && s.gallery_data.length) {
             galleryData = s.gallery_data;
+            snapshotCurrentGraphForExistingGalleryItems();
             activeGalleryIndex = 0;
             renderGalleryUI();
         }
