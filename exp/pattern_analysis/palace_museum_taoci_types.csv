@@ -1,0 +1,14 @@
+﻿column,type
+ID,numeric
+文物名称,text
+时代,category
+分类,category
+窑口,category
+尺寸,text
+高,numeric
+口径,numeric
+足径,numeric
+底径,numeric
+长,numeric
+宽,numeric
+文字描述,text
